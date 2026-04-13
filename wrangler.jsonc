@@ -1,0 +1,12 @@
+{
+	"name": "reading-log",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-01-01",
+	"d1_databases": [
+		{
+			"binding": "reading_log_db",
+			"database_name": "reading-log-db",
+			"database_id": "ea5d37c0-c8ba-4c04-82c0-4009a0514c1f"
+		}
+	]
+}
