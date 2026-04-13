@@ -17,12 +17,12 @@ app.post('/books', async (c) => {
   const isbn = form.get('isbn')?.toString()
 
   if (!isbn) {
-    return c.html(<ResultMessage message="ISBN required" />)
+    return c.html(<ResultMessage message="ISBN required" tone="error" />)
   }
 
   await c.env.DB.prepare('INSERT INTO books (isbn) VALUES (?)').bind(isbn).run()
 
-  return c.html(<ResultMessage message={`登録: ${isbn}`} />)
+  return c.html(<ResultMessage message={`登録: ${isbn}`} tone="success" />)
 })
 
 export default app

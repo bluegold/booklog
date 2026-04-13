@@ -4,8 +4,10 @@ import { BookForm } from '../partials/book-form.js'
 export const HomePage = () => {
   return (
     <Layout>
-      <BookForm />
-      <div id="result"></div>
+      <div class="space-y-4">
+        <BookForm />
+        <div id="result" class="min-h-12"></div>
+      </div>
     </Layout>
   )
 }
