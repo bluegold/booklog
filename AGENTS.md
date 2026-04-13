@@ -21,6 +21,18 @@ The application is a **reading log system** centered around ISBN input.
 
 ---
 
+## Testing
+
+* Use Vitest for test execution.
+* Main commands:
+  * `npm test` (single run)
+  * `npm run test:watch` (watch mode)
+  * `tsc --noEmit` (type check)
+* Prioritize route-level tests (`app.request`) and keep DB behavior mockable in unit tests.
+* For htmx responses, verify returned HTML fragments (`hx-*` attributes and OOB swap blocks).
+
+---
+
 ## Core Concept
 
 ### Primary Input
