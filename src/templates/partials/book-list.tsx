@@ -11,6 +11,7 @@ type BookRow = {
 
 type BookListContentProps = {
   books: BookRow[]
+  highlightNewest?: boolean
 }
 
 const NO_IMAGE_DATA_URL =
@@ -44,9 +45,16 @@ export const BookListContent = (props: BookListContentProps) => {
 
   return (
     <ul class="space-y-2">
-      {props.books.map((book) => {
+      {props.books.map((book, index) => {
+        const isNewest = props.highlightNewest === true && index === 0
+        const itemClass = isNewest
+          ? 'relative rounded-xl border border-emerald-300 bg-white px-4 py-3'
+          : 'rounded-xl border border-stone-200 bg-white px-4 py-3'
         return (
-          <li key={book.id} class="rounded-xl border border-stone-200 bg-white px-4 py-3">
+          <li key={book.id} class={itemClass}>
+            {isNewest ? (
+              <span class="absolute right-3 top-3 rounded-md bg-emerald-600 px-2 py-0.5 text-[10px] font-bold tracking-wide text-white">NEW</span>
+            ) : null}
             <div class="flex gap-3">
               <img
                 src={book.cover_url || NO_IMAGE_DATA_URL}

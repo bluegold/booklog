@@ -293,7 +293,7 @@ describe('reading log routes', () => {
           created_at: '2026-04-13 09:00:00',
         },
       ],
-      insertError: new Error('UNIQUE constraint failed: books.isbn'),
+      insertError: new Error('D1_ERROR: UNIQUE constraint failed: books.user_id, books.isbn: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_UNIQUE)'),
     })
     mockOpenBdNotFound()
     const csrf = await fetchCsrfContext()
