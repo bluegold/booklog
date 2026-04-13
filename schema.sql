@@ -17,6 +17,7 @@ CREATE TABLE books (
   published_at TEXT,
   cover_url TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY(user_id) REFERENCES users(id),
   UNIQUE(user_id, isbn)
 );

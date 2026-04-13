@@ -1,4 +1,12 @@
-import { countBooks, fetchBooksPage, insertBook, type BookRow } from '../repositories/books-repository.js'
+import {
+  countBooks,
+  deleteBookByIdForUser,
+  fetchBookByIdForUser,
+  fetchBooksPage,
+  insertBook,
+  type BookRow,
+  updateBookByIdForUser,
+} from '../repositories/books-repository.js'
 import { fetchBookMetadataFromOpenBd } from '../external/openbd.js'
 
 type AddBookOptions = {
@@ -22,14 +30,40 @@ export type ListBooksResult = {
 
 type AddBookResult =
   | { status: 'validation-error'; message: string }
+  | { status: 'not-found'; message: string; isbn: string }
   | { status: 'duplicate'; message: string }
   | { status: 'success'; message: string }
+
+type SaveBookFieldsInput = {
+  title?: string | undefined
+  author?: string | undefined
+  publisher?: string | undefined
+  published_at?: string | undefined
+  cover_url?: string | undefined
+}
+
+type UpdateBookResult = { status: 'not-found'; message: string } | { status: 'success'; message: string }
+type DeleteBookResult = { status: 'not-found'; message: string } | { status: 'success'; message: string }
 
 const duplicateIsbnMessages = ['UNIQUE constraint failed: books.isbn', 'UNIQUE constraint failed: books.user_id, books.isbn']
 const DEFAULT_PAGE_SIZE = 10
 const normalizeIsbn = (rawIsbn: string): string => rawIsbn.replace(/[\s-]/g, '')
 const isValidIsbn = (isbn: string): boolean => /^(?:\d{13}|\d{9}[\dXx])$/.test(isbn)
 const normalizeQuery = (rawQuery: string | undefined): string => rawQuery?.trim().toLowerCase() ?? ''
+const normalizeField = (raw: string | undefined): string | undefined => {
+  const value = raw?.trim()
+  return value ? value : undefined
+}
+
+const normalizeBookFields = (input: SaveBookFieldsInput): SaveBookFieldsInput => {
+  return {
+    title: normalizeField(input.title),
+    author: normalizeField(input.author),
+    publisher: normalizeField(input.publisher),
+    published_at: normalizeField(input.published_at),
+    cover_url: normalizeField(input.cover_url),
+  }
+}
 
 const pickPage = (page: number | undefined): number => {
   if (!page || !Number.isFinite(page)) {
@@ -91,6 +125,15 @@ export const addBookByIsbn = async (
 
   try {
     const metadata = await fetchBookMetadataFromOpenBd(isbn, options.debug === true)
+
+    if (!metadata) {
+      return {
+        status: 'not-found',
+        message: 'ISBN から書誌情報を取得できませんでした。手入力で登録してください。',
+        isbn,
+      }
+    }
+
     const insertPayload = {
       user_id: userId,
       isbn,
@@ -132,3 +175,97 @@ export const addBookByIsbn = async (
 }
 
 export type { AddBookResult }
+
+export const getBookForEdit = async (db: D1Database, userId: number, bookId: number): Promise<BookRow | null> => {
+  return fetchBookByIdForUser(db, userId, bookId)
+}
+
+export const addBookManual = async (
+  db: D1Database,
+  userId: number,
+  rawIsbn: string | undefined,
+  rawFields: SaveBookFieldsInput
+): Promise<AddBookResult> => {
+  const isbn = normalizeIsbn(rawIsbn?.trim() ?? '')
+
+  if (!isbn) {
+    return {
+      status: 'validation-error',
+      message: 'ISBN required',
+    }
+  }
+
+  if (!isValidIsbn(isbn)) {
+    return {
+      status: 'validation-error',
+      message: 'ISBN形式が不正です（10桁または13桁）',
+    }
+  }
+
+  const fields = normalizeBookFields(rawFields)
+
+  try {
+    await insertBook(db, {
+      user_id: userId,
+      isbn,
+      title: fields.title,
+      author: fields.author,
+      publisher: fields.publisher,
+      published_at: fields.published_at,
+      cover_url: fields.cover_url,
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (duplicateIsbnMessages.some((pattern) => message.includes(pattern))) {
+      return {
+        status: 'duplicate',
+        message: `この ISBN は既に登録されています: ${isbn}`,
+      }
+    }
+
+    throw error
+  }
+
+  return {
+    status: 'success',
+    message: '手入力で登録しました',
+  }
+}
+
+export const updateBookFields = async (
+  db: D1Database,
+  userId: number,
+  bookId: number,
+  rawFields: SaveBookFieldsInput
+): Promise<UpdateBookResult> => {
+  const fields = normalizeBookFields(rawFields)
+  const updated = await updateBookByIdForUser(db, userId, bookId, fields)
+
+  if (!updated) {
+    return {
+      status: 'not-found',
+      message: '対象の本が見つかりませんでした。',
+    }
+  }
+
+  return {
+    status: 'success',
+    message: '更新しました',
+  }
+}
+
+export const deleteBook = async (db: D1Database, userId: number, bookId: number): Promise<DeleteBookResult> => {
+  const deleted = await deleteBookByIdForUser(db, userId, bookId)
+
+  if (!deleted) {
+    return {
+      status: 'not-found',
+      message: '対象の本が見つかりませんでした。',
+    }
+  }
+
+  return {
+    status: 'success',
+    message: '削除しました',
+  }
+}

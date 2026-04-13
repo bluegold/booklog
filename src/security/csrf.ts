@@ -53,6 +53,10 @@ export const buildCsrfSetCookie = (token: string, isSecure: boolean): string => 
   return `${CSRF_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=7200${secure}`
 }
 
+export const getCsrfTokenFromRequest = (request: Request): string | null => {
+  return parseCookies(request.headers.get('cookie')).get(CSRF_COOKIE_NAME) ?? null
+}
+
 export const isValidCsrfToken = (request: Request, submittedToken: string): boolean => {
   const cookieToken = parseCookies(request.headers.get('cookie')).get(CSRF_COOKIE_NAME)
   if (!cookieToken || !submittedToken) {
