@@ -2,6 +2,8 @@
 	"name": "booklog",
 	"main": "src/index.tsx",
 	"compatibility_date": "2026-01-01",
+  "keep_vars": true,
+
 	"assets": {
 		"directory": "./public"
 	},
