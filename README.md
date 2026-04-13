@@ -11,14 +11,18 @@ ISBN を入力して本を登録し、一覧を表示する小さな読書ログ
 ## Features
 
 - ISBN 入力フォームから登録
+- openBD から書誌情報を取得（title / author / publisher / published_at / cover_url）
 - 登録済み一覧の表示
 - htmx による部分更新
+- 書影未取得時は NO IMAGE プレースホルダーを表示
 - 重複 ISBN 登録時のエラー表示
+- CSRF トークン検証と ISBN 形式検証
 
 ## Tech Notes
 
 - `wrangler` と `tsc` はグローバルコマンドとして使える前提です。
 - `npx wrangler ...` / `npx tsc ...` でも実行できます。
+- `DEBUG_OPENBD=1` を設定すると openBD 取得と保存直前ペイロードのデバッグログを出力します。
 
 ## Getting Started
 
@@ -65,7 +69,7 @@ npm run test:watch  # Vitest watch
 
 - `GET /` : 入力フォームと一覧セクションを表示
 - `GET /books` : 登録済み書籍一覧の HTML 断片を返す
-- `POST /books` : ISBN 登録。結果メッセージと一覧更新断片（OOB）を返す
+- `POST /books` : CSRF 検証後に ISBN 登録。結果メッセージと一覧更新断片（OOB）を返す
 
 ## Project Structure
 
@@ -84,6 +88,7 @@ schema.sql                     # D1 schema
 
 - Route-level tests を優先（`app.request` ベース）
 - DB 挙動はユニットテスト内でモック
+- openBD 呼び出しは `fetch` をモックして検証
 - htmx 応答は HTML 断片（`hx-*`, `hx-swap-oob`）を検証
 
 ## Current Schema
@@ -95,6 +100,8 @@ CREATE TABLE books (
   title TEXT,
   author TEXT,
   publisher TEXT,
+  published_at TEXT,
+  cover_url TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 ```

@@ -7,6 +7,8 @@ type BookRow = {
   title: string | null
   author: string | null
   publisher: string | null
+  published_at: string | null
+  cover_url: string | null
   created_at: string | null
 }
 
@@ -46,12 +48,16 @@ const createMockDb = (options: MockDbOptions = {}): D1Database => {
           const title = boundParams[1] != null ? String(boundParams[1]) : null
           const author = boundParams[2] != null ? String(boundParams[2]) : null
           const publisher = boundParams[3] != null ? String(boundParams[3]) : null
+          const published_at = boundParams[4] != null ? String(boundParams[4]) : null
+          const cover_url = boundParams[5] != null ? String(boundParams[5]) : null
           books.unshift({
             id: nextId,
             isbn,
             title,
             author,
             publisher,
+            published_at,
+            cover_url,
             created_at: '2026-04-13 10:00:00',
           })
           nextId += 1
@@ -59,7 +65,7 @@ const createMockDb = (options: MockDbOptions = {}): D1Database => {
           return { success: true }
         },
         async all<T>() {
-          if (sql.startsWith('SELECT id, isbn, title, author, publisher, created_at FROM books')) {
+          if (sql.startsWith('SELECT id, isbn, title, author, publisher, published_at, cover_url, created_at FROM books')) {
             return { results: books as T[] }
           }
 
@@ -90,10 +96,18 @@ const fetchCsrfContext = async (): Promise<CsrfContext> => {
   }
 }
 
-type OpenBdResponse = Array<{ summary?: { title?: string; author?: string; publisher?: string } } | null>
+type OpenBdResponse = Array<
+  { summary?: { title?: string; author?: string; publisher?: string; pubdate?: string; cover?: string } } | null
+>
 
-const mockOpenBdFound = (title: string, author = '著者テスト', publisher = '出版社テスト'): void => {
-  const body: OpenBdResponse = [{ summary: { title, author, publisher } }]
+const mockOpenBdFound = (
+  title: string,
+  author = '著者テスト',
+  publisher = '出版社テスト',
+  pubdate = '198801',
+  cover = 'https://example.com/cover.jpg'
+): void => {
+  const body: OpenBdResponse = [{ summary: { title, author, publisher, pubdate, cover } }]
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => body }))
 }
 
@@ -171,7 +185,7 @@ describe('reading log routes', () => {
 
   it('POST /books registers book with metadata from openBD', async () => {
     const db = createMockDb()
-    mockOpenBdFound('吾輩は猫である', '夏目漱石', '岩波書店')
+    mockOpenBdFound('吾輩は猫である', '夏目漱石', '岩波書店', '1905-11', 'https://example.com/wagahai.jpg')
     const csrf = await fetchCsrfContext()
 
     const res = await app.request(
@@ -191,6 +205,8 @@ describe('reading log routes', () => {
     expect(res.status).toBe(200)
     expect(body).toContain('登録しました')
     expect(body).toContain('吾輩は猫である')
+    expect(body).toContain('出版日: 1905-11')
+    expect(body).toContain('https://example.com/wagahai.jpg')
   })
 
   it('POST /books returns duplicate ISBN error for unique constraint violations', async () => {
@@ -202,6 +218,8 @@ describe('reading log routes', () => {
           title: null,
           author: null,
           publisher: null,
+          published_at: null,
+          cover_url: null,
           created_at: '2026-04-13 09:00:00',
         },
       ],

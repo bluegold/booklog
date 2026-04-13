@@ -18,7 +18,9 @@ app.get('/books', async (c) => {
 })
 
 app.post('/books', csrfValidation, async (c) => {
-  const result = await addBookByIsbn(c.env.DB, c.get('parsedForm').get('isbn')?.toString())
+  const result = await addBookByIsbn(c.env.DB, c.get('parsedForm').get('isbn')?.toString(), {
+    debugOpenBd: c.env.DEBUG_OPENBD === '1',
+  })
 
   if (result.status === 'validation-error' || result.status === 'duplicate') {
     return c.html(

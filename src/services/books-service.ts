@@ -1,6 +1,10 @@
 import { fetchBooks, insertBook, type BookRow } from '../repositories/books-repository.js'
 import { fetchBookMetadataFromOpenBd } from '../external/openbd.js'
 
+type AddBookOptions = {
+  debugOpenBd?: boolean
+}
+
 type AddBookResult =
   | { status: 'validation-error'; message: string; books: BookRow[] }
   | { status: 'duplicate'; message: string; books: BookRow[] }
@@ -14,7 +18,11 @@ export const listBooks = async (db: D1Database): Promise<BookRow[]> => {
   return fetchBooks(db)
 }
 
-export const addBookByIsbn = async (db: D1Database, rawIsbn: string | undefined): Promise<AddBookResult> => {
+export const addBookByIsbn = async (
+  db: D1Database,
+  rawIsbn: string | undefined,
+  options: AddBookOptions = {}
+): Promise<AddBookResult> => {
   const isbn = normalizeIsbn(rawIsbn?.trim() ?? '')
 
   if (!isbn) {
@@ -34,13 +42,27 @@ export const addBookByIsbn = async (db: D1Database, rawIsbn: string | undefined)
   }
 
   try {
-    const metadata = await fetchBookMetadataFromOpenBd(isbn)
-    await insertBook(db, {
+    const metadata = await fetchBookMetadataFromOpenBd(isbn, options.debugOpenBd === true)
+    const insertPayload = {
       isbn,
       title: metadata?.title,
       author: metadata?.author,
       publisher: metadata?.publisher,
-    })
+      published_at: metadata?.published_at,
+      cover_url: metadata?.cover_url,
+    }
+
+    if (options.debugOpenBd === true) {
+      console.log('[books-service] insert payload', {
+        isbn,
+        hasMetadata: !!metadata,
+        hasCoverUrl: !!insertPayload.cover_url,
+        coverUrlPreview: insertPayload.cover_url?.slice(0, 120) ?? null,
+        published_at: insertPayload.published_at ?? null,
+      })
+    }
+
+    await insertBook(db, insertPayload)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
 
