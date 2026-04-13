@@ -1,6 +1,6 @@
 {
 	"name": "reading-log",
-	"main": "src/index.ts",
+	"main": "src/index.tsx",
 	"compatibility_date": "2026-01-01",
 	"d1_databases": [
 		{

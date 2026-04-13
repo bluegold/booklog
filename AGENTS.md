@@ -13,6 +13,14 @@ The application is a **reading log system** centered around ISBN input.
 
 ---
 
+## Development Environment
+
+* `wrangler` and `tsc` are available as global CLI commands in this project environment.
+* You may run `wrangler ...` / `tsc ...` directly without `npx`.
+* If needed for portability, `npx wrangler ...` and `npx tsc ...` are still acceptable alternatives.
+
+---
+
 ## Core Concept
 
 ### Primary Input
