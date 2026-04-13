@@ -4,3 +4,4 @@ misc/access.log
 .env
 .envrc
 .dev.vars
+public/app.css
