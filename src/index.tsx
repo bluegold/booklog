@@ -136,8 +136,15 @@ app.post('/books', requireAuth, csrfValidation, async (c) => {
   return c.html(
     <>
       <ResultMessage message={result.message} tone="success" />
+      <input
+        id="isbn-input"
+        name="isbn"
+        placeholder="例: 9784003101018"
+        class="w-full rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-base outline-none transition focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100"
+        hx-swap-oob="outerHTML"
+      />
       <div id="book-list" hx-swap-oob="innerHTML">
-        <BookListContent books={result.books} />
+        <BookListContent books={result.books} highlightNewest />
       </div>
     </>
   )

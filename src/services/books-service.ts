@@ -10,7 +10,7 @@ type AddBookResult =
   | { status: 'duplicate'; message: string; books: BookRow[] }
   | { status: 'success'; message: string; books: BookRow[] }
 
-const duplicateIsbnMessage = 'UNIQUE constraint failed: books.isbn'
+const duplicateIsbnMessages = ['UNIQUE constraint failed: books.isbn', 'UNIQUE constraint failed: books.user_id, books.isbn']
 const normalizeIsbn = (rawIsbn: string): string => rawIsbn.replace(/[\s-]/g, '')
 const isValidIsbn = (isbn: string): boolean => /^(?:\d{13}|\d{9}[\dXx])$/.test(isbn)
 
@@ -68,7 +68,7 @@ export const addBookByIsbn = async (
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
 
-    if (message.includes(duplicateIsbnMessage)) {
+    if (duplicateIsbnMessages.some((pattern) => message.includes(pattern))) {
       return {
         status: 'duplicate',
         message: `この ISBN は既に登録されています: ${isbn}`,
