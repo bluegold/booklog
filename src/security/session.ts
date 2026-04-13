@@ -9,6 +9,7 @@ type SessionPayload = {
   id: number
   email: string
   name: string
+  pictureUrl?: string | undefined
   exp: number
 }
 
@@ -95,12 +96,13 @@ export const getOAuthStateFromRequest = (request: Request): string | null => {
 }
 
 export const createSessionToken = async (secret: string, user: AuthUser): Promise<string> => {
-  const payload: SessionPayload = {
+  const payloadBase = {
     id: user.id,
     email: user.email,
     name: user.name,
     exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
   }
+  const payload: SessionPayload = user.pictureUrl ? { ...payloadBase, pictureUrl: user.pictureUrl } : payloadBase
 
   const payloadJson = JSON.stringify(payload)
   const payloadEncoded = encodeBase64Url(payloadJson)
@@ -137,6 +139,7 @@ export const parseSessionFromRequest = async (request: Request, secret: string):
     id: payload.id,
     email: payload.email,
     name: payload.name,
+    ...(payload.pictureUrl ? { pictureUrl: payload.pictureUrl } : {}),
   }
 }
 

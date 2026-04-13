@@ -11,6 +11,7 @@ export type AuthUser = {
   id: number
   email: string
   name: string
+  pictureUrl?: string | undefined
 }
 
 export type Variables = {

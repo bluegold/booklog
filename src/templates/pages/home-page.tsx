@@ -13,9 +13,19 @@ export const HomePage = (props: HomePageProps) => {
       <div class="space-y-6">
         <div class="flex items-center justify-between rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm">
           {props.authUser ? (
-            <p class="text-stone-700">
-              ログイン中: <span class="font-medium text-stone-900">{props.authUser.name || props.authUser.email}</span>
-            </p>
+            <div class="flex items-center gap-3">
+              {props.authUser.pictureUrl ? (
+                <img
+                  src={props.authUser.pictureUrl}
+                  alt={`${props.authUser.name || props.authUser.email} のアイコン`}
+                  class="h-9 w-9 rounded-full border border-stone-200 bg-white object-cover"
+                  referrerpolicy="no-referrer"
+                />
+              ) : null}
+              <p class="text-stone-700">
+                ログイン中: <span class="font-medium text-stone-900">{props.authUser.name || props.authUser.email}</span>
+              </p>
+            </div>
           ) : (
             <p class="text-stone-700">未ログイン</p>
           )}
