@@ -15,6 +15,11 @@ type MockDbOptions = {
   insertError?: Error
 }
 
+type CsrfContext = {
+  token: string
+  cookie: string
+}
+
 const createMockDb = (options: MockDbOptions = {}): D1Database => {
   const books: BookRow[] = [...(options.initialBooks ?? [])]
   let nextId = books.length + 1
@@ -62,6 +67,26 @@ const createMockDb = (options: MockDbOptions = {}): D1Database => {
   } as unknown as D1Database
 }
 
+const fetchCsrfContext = async (): Promise<CsrfContext> => {
+  const res = await app.request('/')
+  const body = await res.text()
+
+  const tokenMatch = body.match(/name="csrf_token" value="([^"]+)"/)
+  const cookieHeader = res.headers.get('set-cookie')
+
+  const token = tokenMatch?.[1]
+  const cookie = cookieHeader?.split(';')[0]
+
+  if (!token || !cookie) {
+    throw new Error('CSRF context was not issued')
+  }
+
+  return {
+    token,
+    cookie,
+  }
+}
+
 describe('reading log routes', () => {
   it('GET / returns top page with form and list container', async () => {
     const res = await app.request('/')
@@ -71,6 +96,8 @@ describe('reading log routes', () => {
     expect(body).toContain('Reading Log')
     expect(body).toContain('hx-post="/books"')
     expect(body).toContain('hx-get="/books"')
+    expect(body).toContain('name="csrf_token"')
+    expect(res.headers.get('set-cookie')).toContain('csrf_token=')
   })
 
   it('GET /books returns empty-state message when no books exist', async () => {
@@ -80,6 +107,46 @@ describe('reading log routes', () => {
 
     expect(res.status).toBe(200)
     expect(body).toContain('まだ登録がありません。')
+  })
+
+  it('POST /books rejects request when CSRF token is missing', async () => {
+    const db = createMockDb()
+
+    const res = await app.request(
+      '/books',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ isbn: '9784003101018' }),
+      },
+      { DB: db }
+    )
+
+    const body = await res.text()
+    expect(res.status).toBe(403)
+    expect(body).toContain('不正なリクエストです。ページを再読み込みしてやり直してください。')
+  })
+
+  it('POST /books returns validation error for invalid ISBN format', async () => {
+    const db = createMockDb()
+    const csrf = await fetchCsrfContext()
+
+    const res = await app.request(
+      '/books',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Cookie: csrf.cookie,
+        },
+        body: new URLSearchParams({ isbn: 'abc', csrf_token: csrf.token }),
+      },
+      { DB: db }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(body).toContain('ISBN形式が不正です（10桁または13桁）')
   })
 
   it('POST /books returns duplicate ISBN error for unique constraint violations', async () => {
@@ -96,13 +163,17 @@ describe('reading log routes', () => {
       ],
       insertError: new Error('UNIQUE constraint failed: books.isbn'),
     })
+    const csrf = await fetchCsrfContext()
 
     const res = await app.request(
       '/books',
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ isbn: '9784003101018' }),
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Cookie: csrf.cookie,
+        },
+        body: new URLSearchParams({ isbn: '978-4003101018', csrf_token: csrf.token }),
       },
       { DB: db }
     )

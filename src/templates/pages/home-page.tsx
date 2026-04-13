@@ -1,11 +1,15 @@
 import { Layout } from '../layout.js'
 import { BookForm } from '../partials/book-form.js'
 
-export const HomePage = () => {
+type HomePageProps = {
+  csrfToken: string
+}
+
+export const HomePage = (props: HomePageProps) => {
   return (
     <Layout>
       <div class="space-y-6">
-        <BookForm />
+        <BookForm csrfToken={props.csrfToken} />
         <div id="result" class="min-h-12"></div>
         <section class="space-y-3">
           <h2 class="text-lg font-semibold text-stone-900">登録済みの本</h2>

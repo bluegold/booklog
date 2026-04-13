@@ -1,6 +1,11 @@
-export const BookForm = () => {
+type BookFormProps = {
+  csrfToken: string
+}
+
+export const BookForm = (props: BookFormProps) => {
   return (
     <form hx-post="/books" hx-target="#result" hx-swap="innerHTML" class="space-y-3">
+      <input type="hidden" name="csrf_token" value={props.csrfToken} />
       <label class="block text-sm font-medium text-stone-700" htmlFor="isbn-input">
         ISBN
       </label>

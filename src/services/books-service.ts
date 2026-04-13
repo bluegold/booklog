@@ -6,18 +6,28 @@ type AddBookResult =
   | { status: 'success'; message: string; books: BookRow[] }
 
 const duplicateIsbnMessage = 'UNIQUE constraint failed: books.isbn'
+const normalizeIsbn = (rawIsbn: string): string => rawIsbn.replace(/[\s-]/g, '')
+const isValidIsbn = (isbn: string): boolean => /^(?:\d{13}|\d{9}[\dXx])$/.test(isbn)
 
 export const listBooks = async (db: D1Database): Promise<BookRow[]> => {
   return fetchBooks(db)
 }
 
 export const addBookByIsbn = async (db: D1Database, rawIsbn: string | undefined): Promise<AddBookResult> => {
-  const isbn = rawIsbn?.trim() ?? ''
+  const isbn = normalizeIsbn(rawIsbn?.trim() ?? '')
 
   if (!isbn) {
     return {
       status: 'validation-error',
       message: 'ISBN required',
+      books: await fetchBooks(db),
+    }
+  }
+
+  if (!isValidIsbn(isbn)) {
+    return {
+      status: 'validation-error',
+      message: 'ISBN形式が不正です（10桁または13桁）',
       books: await fetchBooks(db),
     }
   }

@@ -1,17 +1,15 @@
 import { Hono } from 'hono'
+import type { AppEnv } from './types.js'
 import { addBookByIsbn, listBooks } from './services/books-service.js'
+import { csrfIssuance, csrfValidation } from './middleware/csrf.js'
 import { HomePage } from './templates/pages/home-page.js'
 import { BookListContent } from './templates/partials/book-list.js'
 import { ResultMessage } from './templates/partials/result-message.js'
 
-type Bindings = {
-  DB: D1Database
-}
+const app = new Hono<AppEnv>()
 
-const app = new Hono<{ Bindings: Bindings }>()
-
-app.get('/', (c) => {
-  return c.html(<HomePage />)
+app.get('/', csrfIssuance, (c) => {
+  return c.html(<HomePage csrfToken={c.get('csrfToken')} />)
 })
 
 app.get('/books', async (c) => {
@@ -19,9 +17,8 @@ app.get('/books', async (c) => {
   return c.html(<BookListContent books={books} />)
 })
 
-app.post('/books', async (c) => {
-  const form = await c.req.formData()
-  const result = await addBookByIsbn(c.env.DB, form.get('isbn')?.toString())
+app.post('/books', csrfValidation, async (c) => {
+  const result = await addBookByIsbn(c.env.DB, c.get('parsedForm').get('isbn')?.toString())
 
   if (result.status === 'validation-error' || result.status === 'duplicate') {
     return c.html(
