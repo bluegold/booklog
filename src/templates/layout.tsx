@@ -9,7 +9,7 @@ export const Layout = (props: LayoutProps) => {
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>Reading Log</title>
-        <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+        <link rel="stylesheet" href="/app.css" />
         <script src="https://unpkg.com/htmx.org@1.9.12"></script>
       </head>
       <body class="min-h-screen bg-gradient-to-br from-amber-50 via-stone-100 to-emerald-50 text-stone-800 antialiased [font-family:'Noto_Sans_JP','Hiragino_Kaku_Gothic_ProN','Yu_Gothic',sans-serif]">

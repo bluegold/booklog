@@ -4,6 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "build:css": "tailwindcss -i ./src/styles/app.css -o ./public/app.css --minify",
+    "dev": "concurrently -k -n css,worker -c cyan,green \"npm:watch:css\" \"wrangler dev\"",
+    "watch:css": "tailwindcss -i ./src/styles/app.css -o ./public/app.css --watch",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -16,6 +19,9 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260413.1",
+    "@tailwindcss/cli": "^4.2.2",
+    "concurrently": "^9.2.1",
+    "tailwindcss": "^4.2.2",
     "typescript": "^6.0.2",
     "vitest": "^4.1.4"
   }
