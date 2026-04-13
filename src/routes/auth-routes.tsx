@@ -149,6 +149,7 @@ export const registerAuthRoutes = (app: Hono<AppEnv>): void => {
       id: user.id,
       email: user.email,
       name: user.name ?? profile.name,
+      pictureUrl: user.picture_url ?? profile.picture,
     })
 
     c.header('Set-Cookie', buildSessionCookie(token, isSecure))
