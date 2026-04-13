@@ -26,4 +26,20 @@ app.get('/', (c) => {
   `)
 })
 
+app.post('/books', async (c) => {
+  const form = await c.req.formData()
+  const isbn = form.get('isbn')?.toString()
+
+  if (!isbn) {
+    return c.html('<p>ISBN required</p>')
+  }
+
+  await c.env.DB
+    .prepare('INSERT INTO books (isbn) VALUES (?)')
+    .bind(isbn)
+    .run()
+
+  return c.html(`<p>登録: ${isbn}</p>`)
+})
+
 export default app
