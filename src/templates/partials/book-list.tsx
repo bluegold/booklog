@@ -11,6 +11,10 @@ type BookRow = {
 
 type BookListContentProps = {
   books: BookRow[]
+  query: string
+  page: number
+  totalCount: number
+  totalPages: number
   highlightNewest?: boolean
 }
 
@@ -39,40 +43,156 @@ const formatCreatedAt = (createdAt: string | null): string => {
 }
 
 export const BookListContent = (props: BookListContentProps) => {
+  const buildPageUrl = (targetPage: number): string => {
+    const params = new URLSearchParams()
+    if (props.query.length > 0) {
+      params.set('q', props.query)
+    }
+    params.set('page', String(targetPage))
+    return `/books?${params.toString()}`
+  }
+
+  const hasPrev = props.page > 1
+  const hasNext = props.page < props.totalPages
+  const compactPagination =
+    props.totalPages > 1 ? (
+      <div class="flex items-center gap-1">
+        <button
+          type="button"
+          aria-label="前のページ"
+          class="rounded-md border border-stone-300 bg-white px-2 py-1 text-sm leading-none disabled:cursor-not-allowed disabled:opacity-40"
+          hx-get={buildPageUrl(props.page - 1)}
+          hx-target="#book-list"
+          hx-swap="innerHTML"
+          disabled={!hasPrev}
+        >
+          &lt;
+        </button>
+        <button
+          type="button"
+          aria-label="次のページ"
+          class="rounded-md border border-stone-300 bg-white px-2 py-1 text-sm leading-none disabled:cursor-not-allowed disabled:opacity-40"
+          hx-get={buildPageUrl(props.page + 1)}
+          hx-target="#book-list"
+          hx-swap="innerHTML"
+          disabled={!hasNext}
+        >
+          &gt;
+        </button>
+      </div>
+    ) : null
+
+  const pagination =
+    props.totalPages > 1 ? (
+      <div class="mt-3 flex items-center justify-between gap-2 text-xs text-stone-600">
+        <button
+          type="button"
+          class="rounded-md border border-stone-300 bg-white px-3 py-1.5 disabled:cursor-not-allowed disabled:opacity-40"
+          hx-get={buildPageUrl(props.page - 1)}
+          hx-target="#book-list"
+          hx-swap="innerHTML"
+          disabled={!hasPrev}
+        >
+          前へ
+        </button>
+        <p>
+          {props.page} / {props.totalPages} ページ
+        </p>
+        <button
+          type="button"
+          class="rounded-md border border-stone-300 bg-white px-3 py-1.5 disabled:cursor-not-allowed disabled:opacity-40"
+          hx-get={buildPageUrl(props.page + 1)}
+          hx-target="#book-list"
+          hx-swap="innerHTML"
+          disabled={!hasNext}
+        >
+          次へ
+        </button>
+      </div>
+    ) : null
+
+  const countLabel = props.query.length > 0 ? `検索結果 ${props.totalCount} 件` : `全 ${props.totalCount} 件`
+
   if (props.books.length === 0) {
-    return <p class="rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-600">まだ登録がありません。</p>
+    return (
+      <div class="space-y-3">
+        <form class="flex flex-col gap-2 sm:flex-row" hx-get="/books" hx-target="#book-list" hx-swap="innerHTML">
+          <input type="hidden" name="page" value="1" />
+          <input
+            type="search"
+            name="q"
+            value={props.query}
+            placeholder="タイトル・著者・出版社・ISBNで検索"
+            class="w-full rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm outline-none transition focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100"
+          />
+          <button type="submit" class="rounded-xl bg-stone-900 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-700">
+            検索
+          </button>
+        </form>
+        <div class="flex items-center justify-between gap-3">
+          <p class="text-xs text-stone-500">{countLabel}</p>
+          {compactPagination}
+        </div>
+        <p class="rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-600">
+          {props.query.length > 0 ? '条件に一致する本がありません。' : 'まだ登録がありません。'}
+        </p>
+      </div>
+    )
   }
 
   return (
-    <ul class="space-y-2">
-      {props.books.map((book, index) => {
-        const isNewest = props.highlightNewest === true && index === 0
-        const itemClass = isNewest
-          ? 'relative rounded-xl border border-emerald-300 bg-white px-4 py-3'
-          : 'rounded-xl border border-stone-200 bg-white px-4 py-3'
-        return (
-          <li key={book.id} class={itemClass}>
-            {isNewest ? (
-              <span class="absolute right-3 top-3 rounded-md bg-emerald-600 px-2 py-0.5 text-[10px] font-bold tracking-wide text-white">NEW</span>
-            ) : null}
-            <div class="flex gap-3">
-              <img
-                src={book.cover_url || NO_IMAGE_DATA_URL}
-                alt={`${book.title || '書影'} の書影`}
-                class="h-16 w-12 shrink-0 rounded-md border border-stone-200 bg-stone-50 object-cover"
-                loading="lazy"
-              />
-              <div class="min-w-0">
-                <p class="text-sm font-semibold text-stone-900">{book.title || 'タイトル未登録'}</p>
-                <p class="mt-1 text-sm text-stone-700">ISBN: {book.isbn || '-'}</p>
-                <p class="mt-1 text-xs text-stone-500">著者: {book.author || '-'} / 出版社: {book.publisher || '-'}</p>
-                <p class="mt-1 text-xs text-stone-500">出版日: {book.published_at || '-'}</p>
-                <p class="mt-1 text-xs text-stone-500">登録日時: {formatCreatedAt(book.created_at)}</p>
+    <div class="space-y-3">
+      <form class="flex flex-col gap-2 sm:flex-row" hx-get="/books" hx-target="#book-list" hx-swap="innerHTML">
+        <input type="hidden" name="page" value="1" />
+        <input
+          type="search"
+          name="q"
+          value={props.query}
+          placeholder="タイトル・著者・出版社・ISBNで検索"
+          class="w-full rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm outline-none transition focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100"
+        />
+        <button type="submit" class="rounded-xl bg-stone-900 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-700">
+          検索
+        </button>
+      </form>
+
+      <div class="flex items-center justify-between gap-3">
+        <p class="text-xs text-stone-500">{countLabel}</p>
+        {compactPagination}
+      </div>
+
+      <ul class="space-y-2">
+        {props.books.map((book, index) => {
+          const isNewest = props.highlightNewest === true && index === 0
+          const itemClass = isNewest
+            ? 'relative rounded-xl border border-emerald-300 bg-white px-4 py-3'
+            : 'rounded-xl border border-stone-200 bg-white px-4 py-3'
+          return (
+            <li key={book.id} class={itemClass}>
+              {isNewest ? (
+                <span class="absolute right-3 top-3 rounded-md bg-emerald-600 px-2 py-0.5 text-[10px] font-bold tracking-wide text-white">NEW</span>
+              ) : null}
+              <div class="flex gap-3">
+                <img
+                  src={book.cover_url || NO_IMAGE_DATA_URL}
+                  alt={`${book.title || '書影'} の書影`}
+                  class="h-16 w-12 shrink-0 rounded-md border border-stone-200 bg-stone-50 object-cover"
+                  loading="lazy"
+                />
+                <div class="min-w-0">
+                  <p class="text-sm font-semibold text-stone-900">{book.title || 'タイトル未登録'}</p>
+                  <p class="mt-1 text-sm text-stone-700">ISBN: {book.isbn || '-'}</p>
+                  <p class="mt-1 text-xs text-stone-500">著者: {book.author || '-'} / 出版社: {book.publisher || '-'}</p>
+                  <p class="mt-1 text-xs text-stone-500">出版日: {book.published_at || '-'}</p>
+                  <p class="mt-1 text-xs text-stone-500">登録日時: {formatCreatedAt(book.created_at)}</p>
+                </div>
               </div>
-            </div>
-          </li>
-        )
-      })}
-    </ul>
+            </li>
+          )
+        })}
+      </ul>
+
+      {pagination}
+    </div>
   )
 }

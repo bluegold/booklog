@@ -189,6 +189,84 @@ describe('reading log routes', () => {
     expect(body).toContain('まだ登録がありません。')
   })
 
+  it('GET /books filters list by query', async () => {
+    const db = createMockDb({
+      initialBooks: [
+        {
+          id: 1,
+          user_id: 1,
+          isbn: '9784003101018',
+          title: '吾輩は猫である',
+          author: '夏目漱石',
+          publisher: '岩波書店',
+          published_at: '1905-11',
+          cover_url: null,
+          created_at: '2026-04-13 09:00:00',
+        },
+        {
+          id: 2,
+          user_id: 1,
+          isbn: '9784101010014',
+          title: 'こころ',
+          author: '夏目漱石',
+          publisher: '新潮文庫',
+          published_at: '1914',
+          cover_url: null,
+          created_at: '2026-04-12 09:00:00',
+        },
+      ],
+    })
+    const sessionCookie = await createSessionCookie()
+
+    const res = await app.request(
+      '/books?q=%E7%8C%AB',
+      {
+        headers: {
+          Cookie: sessionCookie,
+        },
+      },
+      { DB: db, SESSION_SECRET: TEST_SESSION_SECRET }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(body).toContain('吾輩は猫である')
+    expect(body).not.toContain('こころ')
+    expect(body).toContain('検索結果 1 件')
+  })
+
+  it('GET /books paginates list by page query', async () => {
+    const initialBooks: BookRow[] = Array.from({ length: 11 }, (_, index) => ({
+      id: index + 1,
+      user_id: 1,
+      isbn: `97840000000${String(index + 1).padStart(2, '0')}`,
+      title: `Book ${index + 1}`,
+      author: 'Tester',
+      publisher: 'Pub',
+      published_at: null,
+      cover_url: null,
+      created_at: `2026-04-${String(13 - index).padStart(2, '0')} 09:00:00`,
+    }))
+    const db = createMockDb({ initialBooks })
+    const sessionCookie = await createSessionCookie()
+
+    const res = await app.request(
+      '/books?page=2',
+      {
+        headers: {
+          Cookie: sessionCookie,
+        },
+      },
+      { DB: db, SESSION_SECRET: TEST_SESSION_SECRET }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(body).toContain('2 / 2 ページ')
+    expect(body).toContain('Book 11')
+    expect(body).not.toContain('Book 10')
+  })
+
   it('POST /books rejects request when not authenticated', async () => {
     const db = createMockDb()
 

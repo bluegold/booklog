@@ -5,17 +5,75 @@ type AddBookOptions = {
   debug?: boolean
 }
 
+type ListBooksOptions = {
+  query?: string | undefined
+  page?: number | undefined
+  pageSize?: number | undefined
+}
+
+export type ListBooksResult = {
+  books: BookRow[]
+  query: string
+  page: number
+  pageSize: number
+  totalCount: number
+  totalPages: number
+}
+
 type AddBookResult =
-  | { status: 'validation-error'; message: string; books: BookRow[] }
-  | { status: 'duplicate'; message: string; books: BookRow[] }
-  | { status: 'success'; message: string; books: BookRow[] }
+  | { status: 'validation-error'; message: string }
+  | { status: 'duplicate'; message: string }
+  | { status: 'success'; message: string }
 
 const duplicateIsbnMessages = ['UNIQUE constraint failed: books.isbn', 'UNIQUE constraint failed: books.user_id, books.isbn']
+const DEFAULT_PAGE_SIZE = 10
 const normalizeIsbn = (rawIsbn: string): string => rawIsbn.replace(/[\s-]/g, '')
 const isValidIsbn = (isbn: string): boolean => /^(?:\d{13}|\d{9}[\dXx])$/.test(isbn)
+const normalizeQuery = (rawQuery: string | undefined): string => rawQuery?.trim().toLowerCase() ?? ''
 
-export const listBooks = async (db: D1Database, userId: number): Promise<BookRow[]> => {
-  return fetchBooks(db, userId)
+const pickPage = (page: number | undefined): number => {
+  if (!page || !Number.isFinite(page)) {
+    return 1
+  }
+
+  return Math.max(1, Math.trunc(page))
+}
+
+const pickPageSize = (pageSize: number | undefined): number => {
+  if (!pageSize || !Number.isFinite(pageSize)) {
+    return DEFAULT_PAGE_SIZE
+  }
+
+  return Math.min(50, Math.max(1, Math.trunc(pageSize)))
+}
+
+export const listBooks = async (db: D1Database, userId: number, options: ListBooksOptions = {}): Promise<ListBooksResult> => {
+  const query = normalizeQuery(options.query)
+  const pageSize = pickPageSize(options.pageSize)
+  const requestedPage = pickPage(options.page)
+  const allBooks = await fetchBooks(db, userId)
+  const filteredBooks =
+    query.length === 0
+      ? allBooks
+      : allBooks.filter((book) => {
+          const haystacks = [book.isbn, book.title, book.author, book.publisher]
+          return haystacks.some((value) => (value ?? '').toLowerCase().includes(query))
+        })
+
+  const totalCount = filteredBooks.length
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
+  const page = Math.min(requestedPage, totalPages)
+  const start = (page - 1) * pageSize
+  const books = filteredBooks.slice(start, start + pageSize)
+
+  return {
+    books,
+    query,
+    page,
+    pageSize,
+    totalCount,
+    totalPages,
+  }
 }
 
 export const addBookByIsbn = async (
@@ -30,7 +88,6 @@ export const addBookByIsbn = async (
     return {
       status: 'validation-error',
       message: 'ISBN required',
-      books: await fetchBooks(db, userId),
     }
   }
 
@@ -38,7 +95,6 @@ export const addBookByIsbn = async (
     return {
       status: 'validation-error',
       message: 'ISBN形式が不正です（10桁または13桁）',
-      books: await fetchBooks(db, userId),
     }
   }
 
@@ -72,7 +128,6 @@ export const addBookByIsbn = async (
       return {
         status: 'duplicate',
         message: `この ISBN は既に登録されています: ${isbn}`,
-        books: await fetchBooks(db, userId),
       }
     }
 
@@ -82,7 +137,6 @@ export const addBookByIsbn = async (
   return {
     status: 'success',
     message: `登録しました`,
-    books: await fetchBooks(db, userId),
   }
 }
 
