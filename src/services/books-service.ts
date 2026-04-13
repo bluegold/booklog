@@ -1,4 +1,5 @@
-import { fetchBooks, insertBookByIsbn, type BookRow } from '../repositories/books-repository.js'
+import { fetchBooks, insertBook, type BookRow } from '../repositories/books-repository.js'
+import { fetchBookMetadataFromOpenBd } from '../external/openbd.js'
 
 type AddBookResult =
   | { status: 'validation-error'; message: string; books: BookRow[] }
@@ -33,7 +34,13 @@ export const addBookByIsbn = async (db: D1Database, rawIsbn: string | undefined)
   }
 
   try {
-    await insertBookByIsbn(db, isbn)
+    const metadata = await fetchBookMetadataFromOpenBd(isbn)
+    await insertBook(db, {
+      isbn,
+      title: metadata?.title,
+      author: metadata?.author,
+      publisher: metadata?.publisher,
+    })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
 
@@ -50,7 +57,7 @@ export const addBookByIsbn = async (db: D1Database, rawIsbn: string | undefined)
 
   return {
     status: 'success',
-    message: `登録: ${isbn}`,
+    message: `登録しました`,
     books: await fetchBooks(db),
   }
 }
