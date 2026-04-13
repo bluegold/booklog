@@ -2,7 +2,7 @@ import { fetchBooks, insertBook, type BookRow } from '../repositories/books-repo
 import { fetchBookMetadataFromOpenBd } from '../external/openbd.js'
 
 type AddBookOptions = {
-  debugOpenBd?: boolean
+  debug?: boolean
 }
 
 type AddBookResult =
@@ -14,12 +14,13 @@ const duplicateIsbnMessage = 'UNIQUE constraint failed: books.isbn'
 const normalizeIsbn = (rawIsbn: string): string => rawIsbn.replace(/[\s-]/g, '')
 const isValidIsbn = (isbn: string): boolean => /^(?:\d{13}|\d{9}[\dXx])$/.test(isbn)
 
-export const listBooks = async (db: D1Database): Promise<BookRow[]> => {
-  return fetchBooks(db)
+export const listBooks = async (db: D1Database, userId: number): Promise<BookRow[]> => {
+  return fetchBooks(db, userId)
 }
 
 export const addBookByIsbn = async (
   db: D1Database,
+  userId: number,
   rawIsbn: string | undefined,
   options: AddBookOptions = {}
 ): Promise<AddBookResult> => {
@@ -29,7 +30,7 @@ export const addBookByIsbn = async (
     return {
       status: 'validation-error',
       message: 'ISBN required',
-      books: await fetchBooks(db),
+      books: await fetchBooks(db, userId),
     }
   }
 
@@ -37,13 +38,14 @@ export const addBookByIsbn = async (
     return {
       status: 'validation-error',
       message: 'ISBN形式が不正です（10桁または13桁）',
-      books: await fetchBooks(db),
+      books: await fetchBooks(db, userId),
     }
   }
 
   try {
-    const metadata = await fetchBookMetadataFromOpenBd(isbn, options.debugOpenBd === true)
+    const metadata = await fetchBookMetadataFromOpenBd(isbn, options.debug === true)
     const insertPayload = {
+      user_id: userId,
       isbn,
       title: metadata?.title,
       author: metadata?.author,
@@ -52,7 +54,7 @@ export const addBookByIsbn = async (
       cover_url: metadata?.cover_url,
     }
 
-    if (options.debugOpenBd === true) {
+    if (options.debug === true) {
       console.log('[books-service] insert payload', {
         isbn,
         hasMetadata: !!metadata,
@@ -70,7 +72,7 @@ export const addBookByIsbn = async (
       return {
         status: 'duplicate',
         message: `この ISBN は既に登録されています: ${isbn}`,
-        books: await fetchBooks(db),
+        books: await fetchBooks(db, userId),
       }
     }
 
@@ -80,7 +82,7 @@ export const addBookByIsbn = async (
   return {
     status: 'success',
     message: `登録しました`,
-    books: await fetchBooks(db),
+    books: await fetchBooks(db, userId),
   }
 }
 

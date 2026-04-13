@@ -1,0 +1,19 @@
+:8080 {
+	root * ../public
+	file_server
+
+	log {
+		output file access.log
+		format json
+	}
+
+	@not_found {
+		not file {path}
+	}
+
+	reverse_proxy @not_found localhost:8787 {
+		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-for {http.request.header.X-Forwarded-For}
+		header_up Host {host}
+	}
+}

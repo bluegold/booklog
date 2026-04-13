@@ -1,0 +1,21 @@
+import type { MiddlewareHandler } from 'hono'
+import type { AppEnv } from '../types.js'
+import { parseSessionFromRequest } from '../security/session.js'
+import { ResultMessage } from '../templates/partials/result-message.js'
+
+export const sessionAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
+  const secret = c.env?.SESSION_SECRET ?? ''
+  const authUser = secret ? await parseSessionFromRequest(c.req.raw, secret) : null
+  c.set('authUser', authUser)
+  await next()
+}
+
+export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
+  const authUser = c.get('authUser')
+
+  if (!authUser) {
+    return c.html(<ResultMessage message="ログインが必要です。" tone="error" />, 401)
+  }
+
+  await next()
+}
