@@ -11,5 +11,20 @@
 			"database_name": "reading-log-db",
 			"database_id": "ea5d37c0-c8ba-4c04-82c0-4009a0514c1f"
 		}
-	]
+	],
+  "observability": {
+    "enabled": false,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": false,
+      "persist": true,
+      "head_sampling_rate": 1
+    }
+  }
 }
