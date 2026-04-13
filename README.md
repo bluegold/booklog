@@ -55,6 +55,20 @@ npm run dev
 - Tailwind CSS の watch ビルド
 - `wrangler dev`
 
+## Migration (updated_at 追加)
+
+既存 DB には migration を適用してください。
+
+```bash
+wrangler d1 execute reading-log-db --file=./migrations/0002_add_books_updated_at.sql
+```
+
+ローカル DB の場合:
+
+```bash
+wrangler d1 execute reading-log-db --local --file=./migrations/0002_add_books_updated_at.sql
+```
+
 ## Scripts
 
 ```bash

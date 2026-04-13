@@ -15,6 +15,7 @@ type BookListContentProps = {
   page: number
   totalCount: number
   totalPages: number
+  csrfToken: string
   highlightNewest?: boolean
 }
 
@@ -167,11 +168,37 @@ export const BookListContent = (props: BookListContentProps) => {
           const itemClass = isNewest
             ? 'relative rounded-xl border border-emerald-300 bg-white px-4 py-3'
             : 'rounded-xl border border-stone-200 bg-white px-4 py-3'
+
+          const editUrl = `/books/${book.id}/edit?q=${encodeURIComponent(props.query)}&page=${encodeURIComponent(String(props.page))}`
           return (
             <li key={book.id} class={itemClass}>
               {isNewest ? (
-                <span class="absolute right-3 top-3 rounded-md bg-emerald-600 px-2 py-0.5 text-[10px] font-bold tracking-wide text-white">NEW</span>
+                <span class="absolute left-3 top-3 rounded-md bg-emerald-600 px-2 py-0.5 text-[10px] font-bold tracking-wide text-white">NEW</span>
               ) : null}
+
+              <div class="mb-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  class="rounded-md border border-stone-300 bg-white px-2.5 py-1 text-xs font-medium text-stone-700 transition hover:bg-stone-100"
+                  hx-get={editUrl}
+                  hx-target={`#book-edit-${book.id}`}
+                  hx-swap="innerHTML"
+                >
+                  編集
+                </button>
+                <form hx-post={`/books/${book.id}/delete`} hx-target="#result" hx-swap="innerHTML" hx-confirm="この本を削除します。よろしいですか？">
+                  <input type="hidden" name="csrf_token" value={props.csrfToken} />
+                  <input type="hidden" name="q" value={props.query} />
+                  <input type="hidden" name="page" value={String(props.page)} />
+                  <button
+                    type="submit"
+                    class="rounded-md border border-rose-300 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700 transition hover:bg-rose-100"
+                  >
+                    削除
+                  </button>
+                </form>
+              </div>
+
               <div class="flex gap-3">
                 <img
                   src={book.cover_url || NO_IMAGE_DATA_URL}
@@ -187,6 +214,7 @@ export const BookListContent = (props: BookListContentProps) => {
                   <p class="mt-1 text-xs text-stone-500">登録日時: {formatCreatedAt(book.created_at)}</p>
                 </div>
               </div>
+              <div id={`book-edit-${book.id}`} class="mt-2"></div>
             </li>
           )
         })}
