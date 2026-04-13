@@ -31,6 +31,32 @@ const createMockDb = (options: MockDbOptions = {}): D1Database => {
   const books: BookRow[] = [...(options.initialBooks ?? [])]
   let nextId = books.length + 1
 
+  const filterBooks = (targetUserId: number, query: string): BookRow[] => {
+    const normalizedQuery = query.trim().toLowerCase()
+    const filtered = books.filter((book) => {
+      if (book.user_id !== targetUserId) {
+        return false
+      }
+
+      if (normalizedQuery.length === 0) {
+        return true
+      }
+
+      const fields = [book.isbn, book.title, book.author, book.publisher]
+      return fields.some((value) => (value ?? '').toLowerCase().includes(normalizedQuery))
+    })
+
+    return filtered.sort((a, b) => {
+      const timeA = new Date((a.created_at ?? '').replace(' ', 'T') + 'Z').getTime()
+      const timeB = new Date((b.created_at ?? '').replace(' ', 'T') + 'Z').getTime()
+      if (timeA !== timeB) {
+        return timeB - timeA
+      }
+
+      return b.id - a.id
+    })
+  }
+
   return {
     prepare(sql: string) {
       let boundParams: unknown[] = []
@@ -72,9 +98,20 @@ const createMockDb = (options: MockDbOptions = {}): D1Database => {
           return { success: true }
         },
         async all<T>() {
+          if (sql.startsWith('SELECT COUNT(*) AS total_count FROM books WHERE user_id = ?')) {
+            const targetUserId = Number(boundParams[0] ?? 0)
+            const query = String(boundParams[1] ?? '')
+            const total_count = filterBooks(targetUserId, query).length
+            return { results: [{ total_count }] as T[] }
+          }
+
           if (sql.startsWith('SELECT id, user_id, isbn, title, author, publisher, published_at, cover_url, created_at FROM books WHERE user_id = ?')) {
             const targetUserId = Number(boundParams[0] ?? 0)
-            return { results: books.filter((book) => book.user_id === targetUserId) as T[] }
+            const query = String(boundParams[1] ?? '')
+            const limit = Number(boundParams[6] ?? 10)
+            const offset = Number(boundParams[7] ?? 0)
+            const filtered = filterBooks(targetUserId, query)
+            return { results: filtered.slice(offset, offset + limit) as T[] }
           }
 
           return { results: [] as T[] }
@@ -265,6 +302,37 @@ describe('reading log routes', () => {
     expect(body).toContain('2 / 2 ページ')
     expect(body).toContain('Book 11')
     expect(body).not.toContain('Book 10')
+  })
+
+  it('GET /books can find matches beyond first 50 rows', async () => {
+    const initialBooks: BookRow[] = Array.from({ length: 60 }, (_, index) => ({
+      id: index + 1,
+      user_id: 1,
+      isbn: `9784999999${String(index + 1).padStart(4, '0')}`,
+      title: index === 59 ? 'Needle Book' : `Book ${index + 1}`,
+      author: 'Tester',
+      publisher: 'Pub',
+      published_at: null,
+      cover_url: null,
+      created_at: `2026-02-${String((index % 28) + 1).padStart(2, '0')} 09:00:00`,
+    }))
+    const db = createMockDb({ initialBooks })
+    const sessionCookie = await createSessionCookie()
+
+    const res = await app.request(
+      '/books?q=needle',
+      {
+        headers: {
+          Cookie: sessionCookie,
+        },
+      },
+      { DB: db, SESSION_SECRET: TEST_SESSION_SECRET }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(body).toContain('Needle Book')
+    expect(body).toContain('検索結果 1 件')
   })
 
   it('POST /books rejects request when not authenticated', async () => {
