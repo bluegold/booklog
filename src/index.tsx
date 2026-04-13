@@ -113,8 +113,22 @@ app.post('/auth/logout', (c) => {
 })
 
 app.get('/books', requireAuth, async (c) => {
-  const books = await listBooks(c.env.DB, c.get('authUser')!.id)
-  return c.html(<BookListContent books={books} />)
+  const query = c.req.query('q') ?? ''
+  const pageValue = Number(c.req.query('page') ?? '1')
+  const listing = await listBooks(c.env.DB, c.get('authUser')!.id, {
+    query,
+    page: pageValue,
+  })
+
+  return c.html(
+    <BookListContent
+      books={listing.books}
+      query={listing.query}
+      page={listing.page}
+      totalCount={listing.totalCount}
+      totalPages={listing.totalPages}
+    />
+  )
 })
 
 app.post('/books', requireAuth, csrfValidation, async (c) => {
@@ -123,16 +137,24 @@ app.post('/books', requireAuth, csrfValidation, async (c) => {
   })
 
   if (result.status === 'validation-error' || result.status === 'duplicate') {
+    const listing = await listBooks(c.env.DB, c.get('authUser')!.id)
     return c.html(
       <>
         <ResultMessage message={result.message} tone="error" />
         <div id="book-list" hx-swap-oob="innerHTML">
-          <BookListContent books={result.books} />
+          <BookListContent
+            books={listing.books}
+            query={listing.query}
+            page={listing.page}
+            totalCount={listing.totalCount}
+            totalPages={listing.totalPages}
+          />
         </div>
       </>
     )
   }
 
+  const listing = await listBooks(c.env.DB, c.get('authUser')!.id)
   return c.html(
     <>
       <ResultMessage message={result.message} tone="success" />
@@ -144,7 +166,14 @@ app.post('/books', requireAuth, csrfValidation, async (c) => {
         hx-swap-oob="outerHTML"
       />
       <div id="book-list" hx-swap-oob="innerHTML">
-        <BookListContent books={result.books} highlightNewest />
+        <BookListContent
+          books={listing.books}
+          query={listing.query}
+          page={listing.page}
+          totalCount={listing.totalCount}
+          totalPages={listing.totalPages}
+          highlightNewest
+        />
       </div>
     </>
   )
