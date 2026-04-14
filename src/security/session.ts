@@ -9,6 +9,12 @@ type SessionPayload = {
   id: number
   email: string
   name: string
+  userType: 'user' | 'admin'
+  impersonator?: {
+    id: number
+    email: string
+    name: string
+  }
   pictureUrl?: string | undefined
   exp: number
 }
@@ -100,9 +106,14 @@ export const createSessionToken = async (secret: string, user: AuthUser): Promis
     id: user.id,
     email: user.email,
     name: user.name,
+    userType: user.userType,
     exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
   }
-  const payload: SessionPayload = user.pictureUrl ? { ...payloadBase, pictureUrl: user.pictureUrl } : payloadBase
+  const payload: SessionPayload = {
+    ...payloadBase,
+    ...(user.pictureUrl ? { pictureUrl: user.pictureUrl } : {}),
+    ...(user.impersonator ? { impersonator: user.impersonator } : {}),
+  }
 
   const payloadJson = JSON.stringify(payload)
   const payloadEncoded = encodeBase64Url(payloadJson)
@@ -139,6 +150,8 @@ export const parseSessionFromRequest = async (request: Request, secret: string):
     id: payload.id,
     email: payload.email,
     name: payload.name,
+    userType: payload.userType === 'admin' ? 'admin' : 'user',
+    ...(payload.impersonator ? { impersonator: payload.impersonator } : {}),
     ...(payload.pictureUrl ? { pictureUrl: payload.pictureUrl } : {}),
   }
 }

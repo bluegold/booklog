@@ -100,7 +100,7 @@ export const registerAuthRoutes = (app: Hono<AppEnv>): void => {
     const state = createOAuthState()
     const isSecure = getIsSecureRequest(c.req.url)
 
-    c.header('Set-Cookie', buildOAuthStateCookie(state, isSecure))
+    c.header('Set-Cookie', buildOAuthStateCookie(state, isSecure), { append: true })
     const authUrl = buildGoogleAuthUrl({ clientId: config.clientId, clientSecret: '', redirectUri: config.redirectUri }, state)
     return c.redirect(authUrl)
   })
@@ -119,7 +119,7 @@ export const registerAuthRoutes = (app: Hono<AppEnv>): void => {
     const expectedState = getOAuthStateFromRequest(c.req.raw)
     const isSecure = getIsSecureRequest(c.req.url)
 
-    c.header('Set-Cookie', buildOAuthStateClearCookie(isSecure))
+    c.header('Set-Cookie', buildOAuthStateClearCookie(isSecure), { append: true })
 
     if (!state || !code || !expectedState || state !== expectedState) {
       return c.html(<ResultMessage message="Google 認証の state 検証に失敗しました。" tone="error" />, 400)
@@ -149,17 +149,18 @@ export const registerAuthRoutes = (app: Hono<AppEnv>): void => {
       id: user.id,
       email: user.email,
       name: user.name ?? profile.name,
+      userType: user.user_type,
       pictureUrl: user.picture_url ?? profile.picture,
     })
 
-    c.header('Set-Cookie', buildSessionCookie(token, isSecure))
+    c.header('Set-Cookie', buildSessionCookie(token, isSecure), { append: true })
     return c.redirect('/')
   })
 
   // セッション Cookie を削除してログアウトする。
   app.post('/auth/logout', (c) => {
     const isSecure = getIsSecureRequest(c.req.url)
-    c.header('Set-Cookie', buildSessionClearCookie(isSecure))
+    c.header('Set-Cookie', buildSessionClearCookie(isSecure), { append: true })
     return c.redirect('/')
   })
 }

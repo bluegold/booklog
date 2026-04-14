@@ -5,3 +5,4 @@ misc/access.log
 .envrc
 .dev.vars
 public/app.css
+.vscode/
