@@ -95,7 +95,7 @@ export const registerAdminRoutes = (app: Hono<AppEnv>): void => {
       impersonator: adminActor,
     })
 
-    c.header('Set-Cookie', buildSessionCookie(token, getIsSecureRequest(c.req.url)))
+    c.header('Set-Cookie', buildSessionCookie(token, getIsSecureRequest(c.req.url)), { append: true })
     return c.redirect('/')
   })
 
@@ -119,7 +119,7 @@ export const registerAdminRoutes = (app: Hono<AppEnv>): void => {
       pictureUrl: adminUser.picture_url ?? undefined,
     })
 
-    c.header('Set-Cookie', buildSessionCookie(token, getIsSecureRequest(c.req.url)))
+    c.header('Set-Cookie', buildSessionCookie(token, getIsSecureRequest(c.req.url)), { append: true })
     return c.redirect('/')
   })
 }

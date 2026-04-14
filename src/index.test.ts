@@ -759,6 +759,55 @@ describe('reading log routes', () => {
     expect(setCookie).toContain('csrf_token=')
   })
 
+  it('GET /auth/google/start keeps session-clear cookie alongside oauth state cookie', async () => {
+    const db = createMockDb({
+      initialUsers: [
+        {
+          id: 1,
+          google_sub: 'demoted-admin-sub',
+          email: 'admin@example.com',
+          name: 'Demoted Admin',
+          user_type: 'user',
+          picture_url: null,
+          created_at: '2026-04-14 09:00:00',
+        },
+      ],
+    })
+    const impersonationSessionCookie = await createSessionCookie({
+      id: 2,
+      email: 'target@example.com',
+      name: 'Target User',
+      userType: 'user',
+      impersonator: {
+        id: 1,
+        email: 'admin@example.com',
+        name: 'Demoted Admin',
+      },
+    })
+
+    const res = await app.request(
+      '/auth/google/start',
+      {
+        headers: {
+          Cookie: impersonationSessionCookie,
+        },
+      },
+      {
+        DB: db,
+        SESSION_SECRET: TEST_SESSION_SECRET,
+        GOOGLE_CLIENT_ID: 'test-client-id',
+        GOOGLE_REDIRECT_URI: 'https://example.com/auth/google/callback',
+      }
+    )
+
+    const cookies = res.headers.getSetCookie()
+    const hasSessionClear = cookies.some((c) => c.startsWith('session_token=') && c.includes('Max-Age=0'))
+    const hasOauthState = cookies.some((c) => c.startsWith('oauth_state='))
+    expect(res.status).toBe(302)
+    expect(hasSessionClear).toBe(true)
+    expect(hasOauthState).toBe(true)
+  })
+
   it('GET /books returns 401 when not authenticated', async () => {
     const db = createMockDb()
     const res = await app.request('/books', undefined, { DB: db })
