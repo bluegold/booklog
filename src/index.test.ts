@@ -774,7 +774,7 @@ describe('reading log routes', () => {
     )
     const body = await res.text()
 
-    expect(res.status).toBe(413)
+    expect(res.status).toBe(200)
     expect(body).toContain(COVER_UPLOAD_REQUEST_SIZE_ERROR_MESSAGE)
     expect(bucket.put).not.toHaveBeenCalled()
   })
@@ -820,7 +820,7 @@ describe('reading log routes', () => {
     )
     const body = await res.text()
 
-    expect(res.status).toBe(413)
+    expect(res.status).toBe(200)
     expect(body).toContain(COVER_UPLOAD_REQUEST_SIZE_ERROR_MESSAGE)
     expect(bucket.put).not.toHaveBeenCalled()
   })
@@ -863,7 +863,7 @@ describe('reading log routes', () => {
     )
     const body = await res.text()
 
-    expect(res.status).toBe(413)
+    expect(res.status).toBe(200)
     expect(body).toContain(COVER_UPLOAD_REQUEST_SIZE_ERROR_MESSAGE)
     expect(bucket.put).not.toHaveBeenCalled()
   })
@@ -1000,5 +1000,48 @@ describe('reading log routes', () => {
     expect(res.status).toBe(200)
     expect(body).toContain('削除しました')
     expect(body).not.toContain('削除対象')
+  })
+
+  it('POST /books/:id/delete removes managed cover object from R2 as best effort', async () => {
+    const db = createMockDb({
+      initialBooks: [
+        {
+          id: 10,
+          user_id: 1,
+          isbn: '9784003101018',
+          title: '削除対象',
+          author: '著者',
+          publisher: '出版社',
+          published_at: '2000',
+          cover_url: 'https://pub.example.r2.dev/users/1/books/10/current.jpg',
+          created_at: '2026-04-13 09:00:00',
+        },
+      ],
+    })
+    const bucket = createMockR2Bucket()
+    const csrf = await fetchCsrfContext()
+
+    const res = await app.request(
+      '/books/10/delete',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Cookie: `${csrf.sessionCookie}; ${csrf.csrfCookie}`,
+        },
+        body: new URLSearchParams({ csrf_token: csrf.token, q: '', page: '1' }),
+      },
+      {
+        DB: db,
+        SESSION_SECRET: TEST_SESSION_SECRET,
+        BOOK_COVERS: bucket,
+        BOOK_COVERS_PUBLIC_BASE_URL: 'https://pub.example.r2.dev',
+      }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(body).toContain('削除しました')
+    expect(bucket.delete).toHaveBeenCalledWith('users/1/books/10/current.jpg')
   })
 })

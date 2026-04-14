@@ -2,7 +2,7 @@ import type { Hono } from 'hono'
 import { requireAuth } from '../middleware/auth.js'
 import { csrfValidation } from '../middleware/csrf.js'
 import { getCsrfTokenFromRequest } from '../security/csrf.js'
-import { addBookByIsbn, addBookManual, deleteBook, getBookForEdit, listBooks, updateBookFields } from '../services/books-service.js'
+import { addBookByIsbn, addBookManual, deleteBookWithManagedCoverCleanup, getBookForEdit, listBooks, updateBookFields } from '../services/books-service.js'
 import { isManagedCoverUrlForBook } from '../services/cover-url-utils.js'
 import { BookListContent } from '../templates/partials/book-list.js'
 import { BookMetadataFields } from '../templates/partials/book-metadata-fields.js'
@@ -260,7 +260,13 @@ export const registerBookRoutes = (app: Hono<AppEnv>): void => {
       return c.html(renderErrorOobResponse('対象の本が見つかりませんでした。', listing, csrfToken))
     }
 
-    const result = await deleteBook(c.env.DB, c.get('authUser')!.id, bookId)
+    const result = await deleteBookWithManagedCoverCleanup(
+      c.env.DB,
+      c.env.BOOK_COVERS,
+      c.env.BOOK_COVERS_PUBLIC_BASE_URL,
+      c.get('authUser')!.id,
+      bookId
+    )
     const listing = await listBooks(c.env.DB, c.get('authUser')!.id, context)
 
     if (result.status === 'not-found') {

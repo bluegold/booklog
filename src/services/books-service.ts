@@ -8,7 +8,7 @@ import {
   updateBookByIdForUser,
 } from '../repositories/books-repository.js'
 import { fetchBookMetadataFromOpenBd } from '../external/openbd.js'
-import { isManagedCoverUrlForBook } from './cover-url-utils.js'
+import { getManagedCoverObjectKeyForBook, isManagedCoverUrlForBook } from './cover-url-utils.js'
 
 type AddBookOptions = {
   debug?: boolean
@@ -274,12 +274,62 @@ export const updateBookFields = async (
 }
 
 export const deleteBook = async (db: D1Database, userId: number, bookId: number): Promise<DeleteBookResult> => {
+  const book = await fetchBookByIdForUser(db, userId, bookId)
+  if (!book) {
+    return {
+      status: 'not-found',
+      message: '対象の本が見つかりませんでした。',
+    }
+  }
+
   const deleted = await deleteBookByIdForUser(db, userId, bookId)
 
   if (!deleted) {
     return {
       status: 'not-found',
       message: '対象の本が見つかりませんでした。',
+    }
+  }
+
+  return {
+    status: 'success',
+    message: '削除しました',
+  }
+}
+
+export const deleteBookWithManagedCoverCleanup = async (
+  db: D1Database,
+  bucket: R2Bucket | undefined,
+  publicBaseUrl: string | undefined,
+  userId: number,
+  bookId: number
+): Promise<DeleteBookResult> => {
+  const book = await fetchBookByIdForUser(db, userId, bookId)
+  if (!book) {
+    return {
+      status: 'not-found',
+      message: '対象の本が見つかりませんでした。',
+    }
+  }
+
+  const managedObjectKey = getManagedCoverObjectKeyForBook(book.cover_url, publicBaseUrl, userId, bookId)
+  const deleted = await deleteBookByIdForUser(db, userId, bookId)
+
+  if (!deleted) {
+    return {
+      status: 'not-found',
+      message: '対象の本が見つかりませんでした。',
+    }
+  }
+
+  if (managedObjectKey && bucket) {
+    try {
+      await bucket.delete(managedObjectKey)
+    } catch (error) {
+      console.error('[books-service] cleanup failed for deleted book cover', {
+        objectKey: managedObjectKey,
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
   }
 

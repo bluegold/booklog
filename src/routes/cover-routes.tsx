@@ -11,7 +11,6 @@ import { pickListContext, renderBookListOob, renderErrorOobResponse } from './re
 
 const enforceCoverUploadRequestSize: MiddlewareHandler<AppEnv> = async (c, next) => {
   const rejectTooLarge = () => {
-    c.status(413)
     return c.html(<ResultMessage message={COVER_UPLOAD_REQUEST_SIZE_ERROR_MESSAGE} tone="error" />)
   }
 
