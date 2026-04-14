@@ -23,6 +23,8 @@ ISBN を入力して本を登録し、一覧を表示する小さな読書ログ
 - `wrangler` と `tsc` はグローバルコマンドとして使える前提です。
 - `npx wrangler ...` / `npx tsc ...` でも実行できます。
 - `DEBUG=1` を設定すると openBD 取得と OAuth 周辺のデバッグログを出力します。
+- 実運用の設定は [wrangler.jsonc](./wrangler.jsonc) を参照してください。
+- D1 スキーマの正本は [schema.sql](./schema.sql) です。マイグレーションは [migrations/](./migrations) を参照してください。
 
 ## Getting Started
 
@@ -112,38 +114,15 @@ public/                        # Tailwind output files
 schema.sql                     # D1 schema
 ```
 
+## Configuration Sources
+
+- Cloudflare Workers / D1 / R2 のバインディングと vars は [wrangler.jsonc](./wrangler.jsonc) に定義されています。
+- テーブル定義の正本は [schema.sql](./schema.sql) です。
+- 既存データへの変更は [migrations/](./migrations) に追加します。
+
 ## Testing Policy (Current)
 
 - Route-level tests を優先（`app.request` ベース）
 - DB 挙動はユニットテスト内でモック
 - openBD 呼び出しは `fetch` をモックして検証
 - htmx 応答は HTML 断片（`hx-*`, `hx-swap-oob`）を検証
-
-## Current Schema
-
-```sql
-CREATE TABLE users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  google_sub TEXT UNIQUE NOT NULL,
-  email TEXT NOT NULL,
-  user_type TEXT NOT NULL DEFAULT 'user' CHECK (user_type IN ('user', 'admin')),
-  name TEXT,
-  picture_url TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE books (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL,
-  isbn TEXT NOT NULL,
-  title TEXT,
-  author TEXT,
-  publisher TEXT,
-  published_at TEXT,
-  cover_url TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY(user_id) REFERENCES users(id),
-  UNIQUE(user_id, isbn)
-);
-```
