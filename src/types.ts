@@ -1,5 +1,7 @@
 export type Bindings = {
   DB: D1Database
+  BOOK_COVERS?: R2Bucket
+  BOOK_COVERS_PUBLIC_BASE_URL?: string
   DEBUG?: string
   GOOGLE_CLIENT_ID?: string
   GOOGLE_CLIENT_SECRET?: string

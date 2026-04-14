@@ -4,6 +4,7 @@ import { sessionAuth } from './middleware/auth.js'
 import { csrfIssuance } from './middleware/csrf.js'
 import { registerAuthRoutes } from './routes/auth-routes.js'
 import { registerBookRoutes } from './routes/book-routes.js'
+import { registerCoverRoutes } from './routes/cover-routes.js'
 import { HomePage } from './templates/pages/home-page.js'
 
 const app = new Hono<AppEnv>()
@@ -20,5 +21,7 @@ app.get('/', csrfIssuance, (c) => {
 registerAuthRoutes(app)
 // 本の一覧・登録ルートを登録する。
 registerBookRoutes(app)
+// 書影アップロードルートを登録する。
+registerCoverRoutes(app)
 
 export default app

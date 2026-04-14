@@ -2,68 +2,15 @@ import type { Hono } from 'hono'
 import { requireAuth } from '../middleware/auth.js'
 import { csrfValidation } from '../middleware/csrf.js'
 import { getCsrfTokenFromRequest } from '../security/csrf.js'
-import { addBookByIsbn, addBookManual, deleteBook, getBookForEdit, listBooks, updateBookFields } from '../services/books-service.js'
+import { addBookByIsbn, addBookManual, deleteBookWithManagedCoverCleanup, getBookForEdit, listBooks, updateBookFields } from '../services/books-service.js'
+import { isManagedCoverUrlForBook } from '../services/cover-url-utils.js'
 import { BookListContent } from '../templates/partials/book-list.js'
 import { BookMetadataFields } from '../templates/partials/book-metadata-fields.js'
 import { ResultMessage } from '../templates/partials/result-message.js'
 import type { AppEnv } from '../types.js'
+import { type ListContext, pickListContext, renderBookList, renderBookListOob, renderErrorOobResponse } from './response-helpers.js'
 
-type ListContext = {
-  query: string
-  page: number
-}
-
-const pickListContext = (input: { query?: string | null | undefined; page?: string | null | undefined }): ListContext => {
-  const query = input.query?.trim() ?? ''
-  const page = Math.max(1, Number(input.page ?? '1') || 1)
-  return { query, page }
-}
-
-// 一覧描画に必要な props をサービス戻り値から組み立てる。
-const renderBookList = (
-  books: Awaited<ReturnType<typeof listBooks>>,
-  csrfToken: string,
-  options: {
-    highlightNewest?: boolean
-  } = {}
-) => {
-  return (
-    <BookListContent
-      books={books.books}
-      query={books.query}
-      page={books.page}
-      totalCount={books.totalCount}
-      totalPages={books.totalPages}
-      csrfToken={csrfToken}
-      {...(options.highlightNewest === true ? { highlightNewest: true } : {})}
-    />
-  )
-}
-
-// htmx の OOB swap で一覧領域だけ差し替える。
-const renderBookListOob = (
-  listing: Awaited<ReturnType<typeof listBooks>>,
-  csrfToken: string,
-  options: { highlightNewest?: boolean } = {}
-) => {
-  return (
-    <div id="book-list" hx-swap-oob="innerHTML">
-      {renderBookList(listing, csrfToken, options)}
-    </div>
-  )
-}
-
-// 登録失敗時はメッセージと最新一覧を返す。
-const renderErrorOobResponse = (message: string, listing: Awaited<ReturnType<typeof listBooks>>, csrfToken: string) => {
-  return (
-    <>
-      <ResultMessage message={message} tone="error" />
-      {renderBookListOob(listing, csrfToken)}
-    </>
-  )
-}
-
-// 登録成功時は入力欄をクリアし、新規行付き一覧を返す。
+// ISBN 登録成功時は入力欄をクリアし、新規行付き一覧を返す。
 const renderSuccessOobResponse = (message: string, listing: Awaited<ReturnType<typeof listBooks>>, csrfToken: string) => {
   return (
     <>
@@ -120,39 +67,78 @@ const renderManualEntryForm = (csrfToken: string, isbn: string) => {
 const renderInlineEditForm = (
   csrfToken: string,
   book: NonNullable<Awaited<ReturnType<typeof getBookForEdit>>>,
-  context: ListContext
+  context: ListContext,
+  coverUrlReadonly: boolean
 ) => {
   return (
-    <form
-      hx-post={`/books/${book.id}/edit`}
-      hx-target="#result"
-      hx-swap="innerHTML"
-      class="inline-form-enter rounded-lg border border-stone-200 bg-stone-50 p-3"
-    >
-      <input type="hidden" name="csrf_token" value={csrfToken} />
-      <input type="hidden" name="q" value={context.query} />
-      <input type="hidden" name="page" value={String(context.page)} />
+    <div class="inline-form-enter space-y-3 rounded-lg border border-stone-200 bg-stone-50 p-3">
       <div class="mb-2 text-xs text-stone-600">ISBN: {book.isbn ?? '-'}</div>
-      <BookMetadataFields
-        title={book.title}
-        author={book.author}
-        publisher={book.publisher}
-        publishedAt={book.published_at}
-        coverUrl={book.cover_url}
-      />
-      <div class="mt-3 flex items-center justify-end gap-2">
-        <button
-          type="button"
-          class="rounded-md border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 transition hover:bg-stone-100"
-          onclick={`document.getElementById('book-edit-${book.id}').innerHTML=''`}
-        >
-          キャンセル
-        </button>
-        <button type="submit" class="rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-800">
-          保存
-        </button>
-      </div>
-    </form>
+      <form
+        hx-post={`/books/${book.id}/cover`}
+        hx-target="#result"
+        hx-swap="innerHTML"
+        hx-encoding="multipart/form-data"
+        class="mb-3 rounded-md border border-stone-200 bg-white p-2"
+      >
+        <input type="hidden" name="csrf_token" value={csrfToken} />
+        <input type="hidden" name="q" value={context.query} />
+        <input type="hidden" name="page" value={String(context.page)} />
+        <label class="block text-xs text-stone-600">
+          書影画像（JPEG / PNG / WebP, 2MB以下）
+          <input
+            type="file"
+            name="cover_image"
+            accept="image/jpeg,image/png,image/webp"
+            class="mt-1 block w-full rounded-md border border-stone-300 bg-white px-2 py-1 text-xs text-stone-700"
+            onchange={`(function(input){var prev=document.getElementById('cover-preview-${book.id}');if(input.files&&input.files[0]){var reader=new FileReader();reader.onload=function(e){prev.src=e.target.result;prev.classList.remove('hidden')};reader.readAsDataURL(input.files[0])}else{prev.src='';prev.classList.add('hidden')}})(this)`}
+          />
+        </label>
+        <img
+          id={`cover-preview-${book.id}`}
+          src=""
+          alt="書影プレビュー"
+          class="hidden mt-2 h-24 w-auto rounded-md border border-stone-200 object-cover"
+        />
+        <div class="mt-2 flex justify-end">
+          <button
+            type="submit"
+            class="rounded-md border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 transition hover:bg-stone-100"
+          >
+            書影をアップロード
+          </button>
+        </div>
+      </form>
+
+      <form
+        hx-post={`/books/${book.id}/edit`}
+        hx-target="#result"
+        hx-swap="innerHTML"
+      >
+        <input type="hidden" name="csrf_token" value={csrfToken} />
+        <input type="hidden" name="q" value={context.query} />
+        <input type="hidden" name="page" value={String(context.page)} />
+        <BookMetadataFields
+          title={book.title}
+          author={book.author}
+          publisher={book.publisher}
+          publishedAt={book.published_at}
+          coverUrl={book.cover_url}
+          coverUrlReadonly={coverUrlReadonly}
+        />
+        <div class="mt-3 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            class="rounded-md border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 transition hover:bg-stone-100"
+            onclick={`document.getElementById('book-edit-${book.id}').innerHTML=''`}
+          >
+            キャンセル
+          </button>
+          <button type="submit" class="rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-800">
+            保存
+          </button>
+        </div>
+      </form>
+    </div>
   )
 }
 
@@ -183,7 +169,9 @@ export const registerBookRoutes = (app: Hono<AppEnv>): void => {
     }
 
     const csrfToken = getCsrfTokenFromRequest(c.req.raw) ?? ''
-    return c.html(renderInlineEditForm(csrfToken, book, context))
+    const authUserId = c.get('authUser')!.id
+    const coverUrlReadonly = isManagedCoverUrlForBook(book.cover_url, c.env.BOOK_COVERS_PUBLIC_BASE_URL, authUserId, book.id)
+    return c.html(renderInlineEditForm(csrfToken, book, context, coverUrlReadonly))
   })
 
   // ISBN を登録し、結果メッセージと更新後一覧を OOB で返す。
@@ -248,16 +236,19 @@ export const registerBookRoutes = (app: Hono<AppEnv>): void => {
       publisher: form.get('publisher')?.toString(),
       published_at: form.get('published_at')?.toString(),
       cover_url: form.get('cover_url')?.toString(),
+    }, {
+      managedCoverBaseUrl: c.env.BOOK_COVERS_PUBLIC_BASE_URL,
     })
 
     const listing = await listBooks(c.env.DB, c.get('authUser')!.id, context)
-    if (result.status === 'not-found') {
+    if (result.status !== 'success') {
       return c.html(renderErrorOobResponse(result.message, listing, csrfToken))
     }
 
     return c.html(renderSuccessOobResponse(result.message, listing, csrfToken))
   })
 
+  // 書籍を削除し、結果メッセージと更新後一覧を OOB で返す。
   app.post('/books/:id/delete', requireAuth, csrfValidation, async (c) => {
     const csrfToken = getCsrfTokenFromRequest(c.req.raw) ?? ''
     const bookId = Number(c.req.param('id'))
@@ -269,7 +260,13 @@ export const registerBookRoutes = (app: Hono<AppEnv>): void => {
       return c.html(renderErrorOobResponse('対象の本が見つかりませんでした。', listing, csrfToken))
     }
 
-    const result = await deleteBook(c.env.DB, c.get('authUser')!.id, bookId)
+    const result = await deleteBookWithManagedCoverCleanup(
+      c.env.DB,
+      c.env.BOOK_COVERS,
+      c.env.BOOK_COVERS_PUBLIC_BASE_URL,
+      c.get('authUser')!.id,
+      bookId
+    )
     const listing = await listBooks(c.env.DB, c.get('authUser')!.id, context)
 
     if (result.status === 'not-found') {
@@ -279,3 +276,4 @@ export const registerBookRoutes = (app: Hono<AppEnv>): void => {
     return c.html(renderSuccessOobResponse(result.message, listing, csrfToken))
   })
 }
+

@@ -8,6 +8,7 @@ import {
   updateBookByIdForUser,
 } from '../repositories/books-repository.js'
 import { fetchBookMetadataFromOpenBd } from '../external/openbd.js'
+import { getManagedCoverObjectKeyForBook, isManagedCoverUrlForBook } from './cover-url-utils.js'
 
 type AddBookOptions = {
   debug?: boolean
@@ -17,6 +18,10 @@ type ListBooksOptions = {
   query?: string | undefined
   page?: number | undefined
   pageSize?: number | undefined
+}
+
+type UpdateBookOptions = {
+  managedCoverBaseUrl?: string | undefined
 }
 
 export type ListBooksResult = {
@@ -42,11 +47,12 @@ type SaveBookFieldsInput = {
   cover_url?: string | undefined
 }
 
-type UpdateBookResult = { status: 'not-found'; message: string } | { status: 'success'; message: string }
+type UpdateBookResult = { status: 'not-found'; message: string } | { status: 'conflict'; message: string } | { status: 'success'; message: string }
 type DeleteBookResult = { status: 'not-found'; message: string } | { status: 'success'; message: string }
 
 const duplicateIsbnMessages = ['UNIQUE constraint failed: books.isbn', 'UNIQUE constraint failed: books.user_id, books.isbn']
 const DEFAULT_PAGE_SIZE = 10
+const MAX_BOOK_EDIT_UPDATE_ATTEMPTS = 2
 const normalizeIsbn = (rawIsbn: string): string => rawIsbn.replace(/[\s-]/g, '')
 const isValidIsbn = (isbn: string): boolean => /^(?:\d{13}|\d{9}[\dXx])$/.test(isbn)
 const normalizeQuery = (rawQuery: string | undefined): string => rawQuery?.trim().toLowerCase() ?? ''
@@ -236,25 +242,52 @@ export const updateBookFields = async (
   db: D1Database,
   userId: number,
   bookId: number,
-  rawFields: SaveBookFieldsInput
+  rawFields: SaveBookFieldsInput,
+  options: UpdateBookOptions = {}
 ): Promise<UpdateBookResult> => {
-  const fields = normalizeBookFields(rawFields)
-  const updated = await updateBookByIdForUser(db, userId, bookId, fields)
+  const requestedFields = normalizeBookFields(rawFields)
 
-  if (!updated) {
+  for (let attempt = 0; attempt < MAX_BOOK_EDIT_UPDATE_ATTEMPTS; attempt += 1) {
+    const existingBook = await fetchBookByIdForUser(db, userId, bookId)
+    if (!existingBook) {
+      return {
+        status: 'not-found',
+        message: '対象の本が見つかりませんでした。',
+      }
+    }
+
+    const fields = {
+      ...requestedFields,
+    }
+
+    if (isManagedCoverUrlForBook(existingBook.cover_url, options.managedCoverBaseUrl, userId, bookId)) {
+      fields.cover_url = existingBook.cover_url ?? undefined
+    }
+
+    const updated = await updateBookByIdForUser(db, userId, bookId, existingBook.cover_url, fields)
+    if (updated) {
+      return {
+        status: 'success',
+        message: '更新しました',
+      }
+    }
+  }
+
+  return {
+    status: 'conflict',
+    message: '更新中に競合が発生しました。もう一度お試しください。',
+  }
+}
+
+export const deleteBook = async (db: D1Database, userId: number, bookId: number): Promise<DeleteBookResult> => {
+  const book = await fetchBookByIdForUser(db, userId, bookId)
+  if (!book) {
     return {
       status: 'not-found',
       message: '対象の本が見つかりませんでした。',
     }
   }
 
-  return {
-    status: 'success',
-    message: '更新しました',
-  }
-}
-
-export const deleteBook = async (db: D1Database, userId: number, bookId: number): Promise<DeleteBookResult> => {
   const deleted = await deleteBookByIdForUser(db, userId, bookId)
 
   if (!deleted) {
@@ -269,3 +302,47 @@ export const deleteBook = async (db: D1Database, userId: number, bookId: number)
     message: '削除しました',
   }
 }
+
+export const deleteBookWithManagedCoverCleanup = async (
+  db: D1Database,
+  bucket: R2Bucket | undefined,
+  publicBaseUrl: string | undefined,
+  userId: number,
+  bookId: number
+): Promise<DeleteBookResult> => {
+  const book = await fetchBookByIdForUser(db, userId, bookId)
+  if (!book) {
+    return {
+      status: 'not-found',
+      message: '対象の本が見つかりませんでした。',
+    }
+  }
+
+  const managedObjectKey = getManagedCoverObjectKeyForBook(book.cover_url, publicBaseUrl, userId, bookId)
+  const deleted = await deleteBookByIdForUser(db, userId, bookId)
+
+  if (!deleted) {
+    return {
+      status: 'not-found',
+      message: '対象の本が見つかりませんでした。',
+    }
+  }
+
+  if (managedObjectKey && bucket) {
+    try {
+      await bucket.delete(managedObjectKey)
+    } catch (error) {
+      console.error('[books-service] cleanup failed for deleted book cover', {
+        objectKey: managedObjectKey,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  return {
+    status: 'success',
+    message: '削除しました',
+  }
+}
+
+

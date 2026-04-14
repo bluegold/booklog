@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import app from './index.js'
+import { COVER_UPLOAD_REQUEST_SIZE_ERROR_MESSAGE } from './services/cover-policy.js'
 import { createSessionToken } from './security/session.js'
 
 type BookRow = {
@@ -18,6 +19,8 @@ type BookRow = {
 type MockDbOptions = {
   initialBooks?: BookRow[]
   insertError?: Error
+  forceCoverUpdateNoChange?: boolean
+  simulateConcurrentCoverUploadOnNextEditUpdate?: string
 }
 
 type CsrfContext = {
@@ -31,6 +34,7 @@ const TEST_SESSION_SECRET = 'test-session-secret'
 const createMockDb = (options: MockDbOptions = {}): D1Database => {
   const books: BookRow[] = [...(options.initialBooks ?? [])]
   let nextId = books.length + 1
+  let didSimulateConcurrentCoverUploadOnEditUpdate = false
 
   const filterBooks = (targetUserId: number, query: string): BookRow[] => {
     const normalizedQuery = query.trim().toLowerCase()
@@ -68,11 +72,45 @@ const createMockDb = (options: MockDbOptions = {}): D1Database => {
           return this
         },
         async run() {
+          if (sql.startsWith('UPDATE books SET cover_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?')) {
+            if (options.forceCoverUpdateNoChange === true) {
+              return { success: true, meta: { changes: 0 } }
+            }
+
+            const bookId = Number(boundParams[1] ?? 0)
+            const userId = Number(boundParams[2] ?? 0)
+            const expectedCoverUrl = boundParams[3] != null ? String(boundParams[3]) : null
+            const target = books.find((book) => book.id === bookId && book.user_id === userId)
+            if (!target) {
+              return { success: true, meta: { changes: 0 } }
+            }
+
+            const currentCoverUrl = target.cover_url ?? null
+            if (currentCoverUrl !== expectedCoverUrl) {
+              return { success: true, meta: { changes: 0 } }
+            }
+
+            target.cover_url = boundParams[0] != null ? String(boundParams[0]) : null
+            target.updated_at = '2026-04-14 10:00:00'
+            return { success: true, meta: { changes: 1 } }
+          }
+
           if (sql.startsWith('UPDATE books SET')) {
             const bookId = Number(boundParams[5] ?? 0)
             const userId = Number(boundParams[6] ?? 0)
+            const expectedCoverUrl = boundParams[7] != null ? String(boundParams[7]) : null
             const target = books.find((book) => book.id === bookId && book.user_id === userId)
             if (!target) {
+              return { success: true, meta: { changes: 0 } }
+            }
+
+            if (options.simulateConcurrentCoverUploadOnNextEditUpdate && !didSimulateConcurrentCoverUploadOnEditUpdate) {
+              target.cover_url = options.simulateConcurrentCoverUploadOnNextEditUpdate
+              didSimulateConcurrentCoverUploadOnEditUpdate = true
+            }
+
+            const currentCoverUrl = target.cover_url ?? null
+            if (currentCoverUrl !== expectedCoverUrl) {
               return { success: true, meta: { changes: 0 } }
             }
 
@@ -160,6 +198,13 @@ const createMockDb = (options: MockDbOptions = {}): D1Database => {
       }
     },
   } as unknown as D1Database
+}
+
+const createMockR2Bucket = (): R2Bucket => {
+  return {
+    put: vi.fn().mockResolvedValue(undefined),
+    delete: vi.fn().mockResolvedValue(undefined),
+  } as unknown as R2Bucket
 }
 
 const createSessionCookie = async (): Promise<string> => {
@@ -608,6 +653,389 @@ describe('reading log routes', () => {
     expect(body).toContain('編集後タイトル')
   })
 
+  it('POST /books/:id/edit ignores cover_url changes when app-managed cover exists', async () => {
+    const db = createMockDb({
+      initialBooks: [
+        {
+          id: 10,
+          user_id: 1,
+          isbn: '9784003101018',
+          title: '編集前タイトル',
+          author: '著者',
+          publisher: '出版社',
+          published_at: '2000',
+          cover_url: 'https://pub.example.r2.dev/users/1/books/10/current.jpg',
+          created_at: '2026-04-13 09:00:00',
+        },
+      ],
+    })
+    const csrf = await fetchCsrfContext()
+
+    const res = await app.request(
+      '/books/10/edit',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Cookie: `${csrf.sessionCookie}; ${csrf.csrfCookie}`,
+        },
+        body: new URLSearchParams({
+          csrf_token: csrf.token,
+          q: '',
+          page: '1',
+          title: '編集後タイトル',
+          author: '編集後著者',
+          publisher: '編集後出版社',
+          published_at: '2020-01',
+          cover_url: 'https://pub.example.r2.dev/users/1/books/999/attack.jpg',
+        }),
+      },
+      {
+        DB: db,
+        SESSION_SECRET: TEST_SESSION_SECRET,
+        BOOK_COVERS_PUBLIC_BASE_URL: 'https://pub.example.r2.dev',
+      }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(body).toContain('更新しました')
+    expect(body).toContain('https://pub.example.r2.dev/users/1/books/10/current.jpg')
+    expect(body).not.toContain('https://pub.example.r2.dev/users/1/books/999/attack.jpg')
+  })
+
+  it('POST /books/:id/edit preserves concurrently uploaded managed cover_url', async () => {
+    const db = createMockDb({
+      simulateConcurrentCoverUploadOnNextEditUpdate: 'https://pub.example.r2.dev/users/1/books/10/newly-uploaded.jpg',
+      initialBooks: [
+        {
+          id: 10,
+          user_id: 1,
+          isbn: '9784003101018',
+          title: '編集前タイトル',
+          author: '著者',
+          publisher: '出版社',
+          published_at: '2000',
+          cover_url: null,
+          created_at: '2026-04-13 09:00:00',
+        },
+      ],
+    })
+    const csrf = await fetchCsrfContext()
+
+    const res = await app.request(
+      '/books/10/edit',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Cookie: `${csrf.sessionCookie}; ${csrf.csrfCookie}`,
+        },
+        body: new URLSearchParams({
+          csrf_token: csrf.token,
+          q: '',
+          page: '1',
+          title: '編集後タイトル',
+          author: '編集後著者',
+          publisher: '編集後出版社',
+          published_at: '2020-01',
+          cover_url: 'https://example.com/attack.jpg',
+        }),
+      },
+      {
+        DB: db,
+        SESSION_SECRET: TEST_SESSION_SECRET,
+        BOOK_COVERS_PUBLIC_BASE_URL: 'https://pub.example.r2.dev',
+      }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(body).toContain('更新しました')
+    expect(body).toContain('https://pub.example.r2.dev/users/1/books/10/newly-uploaded.jpg')
+    expect(body).not.toContain('https://example.com/attack.jpg')
+  })
+
+  it('POST /books/:id/cover uploads image and returns success', async () => {
+    const db = createMockDb({
+      initialBooks: [
+        {
+          id: 10,
+          user_id: 1,
+          isbn: '9784003101018',
+          title: 'カバー更新前',
+          author: '著者',
+          publisher: '出版社',
+          published_at: '2000',
+          cover_url: 'https://pub.example.r2.dev/users/1/books/10/old-cover.jpg',
+          created_at: '2026-04-13 09:00:00',
+        },
+      ],
+    })
+    const bucket = createMockR2Bucket()
+    const csrf = await fetchCsrfContext()
+    const form = new FormData()
+    form.set('csrf_token', csrf.token)
+    form.set('q', '')
+    form.set('page', '1')
+    form.set('cover_image', new File(['fake-image'], 'cover.jpg', { type: 'image/jpeg' }))
+
+    const res = await app.request(
+      '/books/10/cover',
+      {
+        method: 'POST',
+        headers: {
+          Cookie: `${csrf.sessionCookie}; ${csrf.csrfCookie}`,
+          'Content-Length': '1024',
+        },
+        body: form,
+      },
+      {
+        DB: db,
+        SESSION_SECRET: TEST_SESSION_SECRET,
+        BOOK_COVERS: bucket,
+        BOOK_COVERS_PUBLIC_BASE_URL: 'https://pub.example.r2.dev',
+      }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(body).toContain('書影画像を更新しました')
+    expect(body).toContain('https://pub.example.r2.dev/users/1/books/10/')
+    expect(bucket.put).toHaveBeenCalledTimes(1)
+    expect(bucket.delete).toHaveBeenCalledWith('users/1/books/10/old-cover.jpg')
+  })
+
+  it('POST /books/:id/cover rejects oversized payload before multipart parsing', async () => {
+    const db = createMockDb({
+      initialBooks: [
+        {
+          id: 10,
+          user_id: 1,
+          isbn: '9784003101018',
+          title: 'カバー更新前',
+          author: '著者',
+          publisher: '出版社',
+          published_at: '2000',
+          cover_url: null,
+          created_at: '2026-04-13 09:00:00',
+        },
+      ],
+    })
+    const bucket = createMockR2Bucket()
+    const csrf = await fetchCsrfContext()
+
+    const res = await app.request(
+      '/books/10/cover',
+      {
+        method: 'POST',
+        headers: {
+          Cookie: `${csrf.sessionCookie}; ${csrf.csrfCookie}`,
+          'Content-Type': 'multipart/form-data; boundary=----x',
+          'Content-Length': String(2 * 1024 * 1024 + 128 * 1024 + 1),
+        },
+        body: '------x--',
+      },
+      {
+        DB: db,
+        SESSION_SECRET: TEST_SESSION_SECRET,
+        BOOK_COVERS: bucket,
+        BOOK_COVERS_PUBLIC_BASE_URL: 'https://pub.example.r2.dev',
+      }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(body).toContain(COVER_UPLOAD_REQUEST_SIZE_ERROR_MESSAGE)
+    expect(bucket.put).not.toHaveBeenCalled()
+  })
+
+  it('POST /books/:id/cover rejects oversized payload when Content-Length is malformed', async () => {
+    const db = createMockDb({
+      initialBooks: [
+        {
+          id: 10,
+          user_id: 1,
+          isbn: '9784003101018',
+          title: 'カバー更新前',
+          author: '著者',
+          publisher: '出版社',
+          published_at: '2000',
+          cover_url: null,
+          created_at: '2026-04-13 09:00:00',
+        },
+      ],
+    })
+    const bucket = createMockR2Bucket()
+    const csrf = await fetchCsrfContext()
+
+    const oversizedBody = 'x'.repeat(2 * 1024 * 1024 + 128 * 1024 + 1)
+
+    const res = await app.request(
+      '/books/10/cover',
+      {
+        method: 'POST',
+        headers: {
+          Cookie: `${csrf.sessionCookie}; ${csrf.csrfCookie}`,
+          'Content-Type': 'multipart/form-data; boundary=----x',
+          'Content-Length': 'invalid-length',
+        },
+        body: oversizedBody,
+      },
+      {
+        DB: db,
+        SESSION_SECRET: TEST_SESSION_SECRET,
+        BOOK_COVERS: bucket,
+        BOOK_COVERS_PUBLIC_BASE_URL: 'https://pub.example.r2.dev',
+      }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(body).toContain(COVER_UPLOAD_REQUEST_SIZE_ERROR_MESSAGE)
+    expect(bucket.put).not.toHaveBeenCalled()
+  })
+
+  it('POST /books/:id/cover rejects request when Content-Length is missing', async () => {
+    const db = createMockDb({
+      initialBooks: [
+        {
+          id: 10,
+          user_id: 1,
+          isbn: '9784003101018',
+          title: 'カバー更新前',
+          author: '著者',
+          publisher: '出版社',
+          published_at: '2000',
+          cover_url: null,
+          created_at: '2026-04-13 09:00:00',
+        },
+      ],
+    })
+    const bucket = createMockR2Bucket()
+    const csrf = await fetchCsrfContext()
+
+    const res = await app.request(
+      '/books/10/cover',
+      {
+        method: 'POST',
+        headers: {
+          Cookie: `${csrf.sessionCookie}; ${csrf.csrfCookie}`,
+          'Content-Type': 'multipart/form-data; boundary=----x',
+        },
+        body: '------x--',
+      },
+      {
+        DB: db,
+        SESSION_SECRET: TEST_SESSION_SECRET,
+        BOOK_COVERS: bucket,
+        BOOK_COVERS_PUBLIC_BASE_URL: 'https://pub.example.r2.dev',
+      }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(body).toContain(COVER_UPLOAD_REQUEST_SIZE_ERROR_MESSAGE)
+    expect(bucket.put).not.toHaveBeenCalled()
+  })
+
+  it('POST /books/:id/cover cleans uploaded object when cover update keeps conflicting', async () => {
+    const db = createMockDb({
+      forceCoverUpdateNoChange: true,
+      initialBooks: [
+        {
+          id: 10,
+          user_id: 1,
+          isbn: '9784003101018',
+          title: 'カバー更新前',
+          author: '著者',
+          publisher: '出版社',
+          published_at: '2000',
+          cover_url: 'https://pub.example.r2.dev/users/1/books/10/current.jpg',
+          created_at: '2026-04-13 09:00:00',
+        },
+      ],
+    })
+    const bucket = createMockR2Bucket()
+    const csrf = await fetchCsrfContext()
+    const form = new FormData()
+    form.set('csrf_token', csrf.token)
+    form.set('q', '')
+    form.set('page', '1')
+    form.set('cover_image', new File(['fake-image'], 'cover.jpg', { type: 'image/jpeg' }))
+
+    const res = await app.request(
+      '/books/10/cover',
+      {
+        method: 'POST',
+        headers: {
+          Cookie: `${csrf.sessionCookie}; ${csrf.csrfCookie}`,
+          'Content-Length': '1024',
+        },
+        body: form,
+      },
+      {
+        DB: db,
+        SESSION_SECRET: TEST_SESSION_SECRET,
+        BOOK_COVERS: bucket,
+        BOOK_COVERS_PUBLIC_BASE_URL: 'https://pub.example.r2.dev',
+      }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(body).toContain('書影更新中に競合が発生しました。もう一度お試しください。')
+    expect(bucket.put).toHaveBeenCalledTimes(3)
+    expect(bucket.delete).toHaveBeenCalledTimes(3)
+  })
+
+  it('POST /books/:id/cover returns error when file is missing', async () => {
+    const db = createMockDb({
+      initialBooks: [
+        {
+          id: 10,
+          user_id: 1,
+          isbn: '9784003101018',
+          title: 'カバー更新前',
+          author: '著者',
+          publisher: '出版社',
+          published_at: '2000',
+          cover_url: null,
+          created_at: '2026-04-13 09:00:00',
+        },
+      ],
+    })
+    const bucket = createMockR2Bucket()
+    const csrf = await fetchCsrfContext()
+    const form = new FormData()
+    form.set('csrf_token', csrf.token)
+    form.set('q', '')
+    form.set('page', '1')
+
+    const res = await app.request(
+      '/books/10/cover',
+      {
+        method: 'POST',
+        headers: {
+          Cookie: `${csrf.sessionCookie}; ${csrf.csrfCookie}`,
+          'Content-Length': '512',
+        },
+        body: form,
+      },
+      {
+        DB: db,
+        SESSION_SECRET: TEST_SESSION_SECRET,
+        BOOK_COVERS: bucket,
+        BOOK_COVERS_PUBLIC_BASE_URL: 'https://pub.example.r2.dev',
+      }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(body).toContain('アップロードする画像ファイルを選択してください。')
+    expect(bucket.put).not.toHaveBeenCalled()
+  })
+
   it('POST /books/:id/delete removes the book and returns success', async () => {
     const db = createMockDb({
       initialBooks: [
@@ -643,5 +1071,48 @@ describe('reading log routes', () => {
     expect(res.status).toBe(200)
     expect(body).toContain('削除しました')
     expect(body).not.toContain('削除対象')
+  })
+
+  it('POST /books/:id/delete removes managed cover object from R2 as best effort', async () => {
+    const db = createMockDb({
+      initialBooks: [
+        {
+          id: 10,
+          user_id: 1,
+          isbn: '9784003101018',
+          title: '削除対象',
+          author: '著者',
+          publisher: '出版社',
+          published_at: '2000',
+          cover_url: 'https://pub.example.r2.dev/users/1/books/10/current.jpg',
+          created_at: '2026-04-13 09:00:00',
+        },
+      ],
+    })
+    const bucket = createMockR2Bucket()
+    const csrf = await fetchCsrfContext()
+
+    const res = await app.request(
+      '/books/10/delete',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Cookie: `${csrf.sessionCookie}; ${csrf.csrfCookie}`,
+        },
+        body: new URLSearchParams({ csrf_token: csrf.token, q: '', page: '1' }),
+      },
+      {
+        DB: db,
+        SESSION_SECRET: TEST_SESSION_SECRET,
+        BOOK_COVERS: bucket,
+        BOOK_COVERS_PUBLIC_BASE_URL: 'https://pub.example.r2.dev',
+      }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(body).toContain('削除しました')
+    expect(bucket.delete).toHaveBeenCalledWith('users/1/books/10/current.jpg')
   })
 })
