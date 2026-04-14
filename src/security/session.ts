@@ -1,4 +1,11 @@
 import type { AuthUser } from '../types.js'
+import {
+  buildCookie,
+  decodeBase64Url,
+  encodeBase64Url,
+  parseCookies,
+  createRandomBase64UrlToken,
+} from './token-utils.js'
 
 const SESSION_COOKIE_NAME = 'session_token'
 const OAUTH_STATE_COOKIE_NAME = 'oauth_state'
@@ -17,34 +24,6 @@ type SessionPayload = {
   }
   pictureUrl?: string | undefined
   exp: number
-}
-
-const encodeBase64Url = (input: string): string => {
-  return btoa(input).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
-}
-
-const decodeBase64Url = (input: string): string => {
-  const padded = input.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((input.length + 3) % 4)
-  return atob(padded)
-}
-
-const parseCookies = (cookieHeader: string | null): Map<string, string> => {
-  const cookies = new Map<string, string>()
-
-  if (!cookieHeader) {
-    return cookies
-  }
-
-  for (const chunk of cookieHeader.split(';')) {
-    const [namePart, ...valueParts] = chunk.trim().split('=')
-    if (!namePart || valueParts.length === 0) {
-      continue
-    }
-
-    cookies.set(namePart, decodeURIComponent(valueParts.join('=')))
-  }
-
-  return cookies
 }
 
 const importHmacKey = async (secret: string): Promise<CryptoKey> => {
@@ -78,15 +57,8 @@ const verify = async (secret: string, data: string, signature: string): Promise<
   return mismatch === 0
 }
 
-const buildCookie = (name: string, value: string, maxAge: number, isSecure: boolean): string => {
-  const secure = isSecure ? '; Secure' : ''
-  return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`
-}
-
 export const createOAuthState = (): string => {
-  const bytes = new Uint8Array(32)
-  crypto.getRandomValues(bytes)
-  return encodeBase64Url(String.fromCharCode(...bytes))
+  return createRandomBase64UrlToken(32)
 }
 
 export const buildOAuthStateCookie = (state: string, isSecure: boolean): string => {
