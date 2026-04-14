@@ -6,7 +6,8 @@ import { registerAuthRoutes } from './routes/auth-routes.js'
 import { registerBookRoutes } from './routes/book-routes.js'
 import { registerCoverRoutes } from './routes/cover-routes.js'
 import { registerAdminRoutes } from './routes/admin-routes.js'
-import { HomePage } from './templates/pages/home-page.js'
+import { HomeLoggedInPage } from './templates/pages/home-logged-in-page.js'
+import { HomeLoggedOutPage } from './templates/pages/home-logged-out-page.js'
 
 const app = new Hono<AppEnv>()
 
@@ -15,7 +16,13 @@ app.use('*', sessionAuth)
 
 // トップページでは CSRF トークンを発行して初期 UI を返す。
 app.get('/', csrfIssuance, (c) => {
-  return c.html(<HomePage csrfToken={c.get('csrfToken')} authUser={c.get('authUser')} />)
+  const authUser = c.get('authUser')
+
+  if (authUser) {
+    return c.html(<HomeLoggedInPage csrfToken={c.get('csrfToken')} authUser={authUser} />)
+  }
+
+  return c.html(<HomeLoggedOutPage />)
 })
 
 // 認証関連ルートを登録する。
