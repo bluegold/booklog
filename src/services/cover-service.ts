@@ -7,6 +7,22 @@ const coverMimeToExt: Record<string, 'jpg' | 'png' | 'webp'> = {
   'image/webp': 'webp',
 }
 
+const normalizePublicBaseUrl = (url: string): string => url.replace(/\/+$/, '')
+
+const extractManagedObjectKey = (coverUrl: string | null, normalizedBaseUrl: string): string | null => {
+  if (!coverUrl) {
+    return null
+  }
+
+  const prefix = `${normalizedBaseUrl}/`
+  if (!coverUrl.startsWith(prefix)) {
+    return null
+  }
+
+  const key = coverUrl.slice(prefix.length)
+  return key.length > 0 ? key : null
+}
+
 export type UploadBookCoverResult =
   | { status: 'validation-error'; message: string }
   | { status: 'not-found'; message: string }
@@ -71,6 +87,9 @@ export const uploadBookCover = async (
     }
   }
 
+  const normalizedBaseUrl = normalizePublicBaseUrl(publicBaseUrl)
+  const previousManagedObjectKey = extractManagedObjectKey(book.cover_url, normalizedBaseUrl)
+
   const objectKey = `users/${userId}/books/${bookId}/${Date.now()}-${crypto.randomUUID()}.${extension}`
   await bucket.put(objectKey, await file.arrayBuffer(), {
     httpMetadata: {
@@ -89,7 +108,6 @@ export const uploadBookCover = async (
     }
   }
 
-  const normalizedBaseUrl = publicBaseUrl.replace(/\/+$/, '')
   const coverUrl = `${normalizedBaseUrl}/${objectKey}`
 
   let updated: boolean
@@ -105,6 +123,17 @@ export const uploadBookCover = async (
     return {
       status: 'not-found',
       message: '対象の本が見つかりませんでした。',
+    }
+  }
+
+  if (previousManagedObjectKey && previousManagedObjectKey !== objectKey) {
+    try {
+      await bucket.delete(previousManagedObjectKey)
+    } catch (cleanupError) {
+      console.error('[cover-service] cleanup failed for previous cover', {
+        objectKey: previousManagedObjectKey,
+        error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+      })
     }
   }
 

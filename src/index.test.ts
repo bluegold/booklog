@@ -178,6 +178,7 @@ const createMockDb = (options: MockDbOptions = {}): D1Database => {
 const createMockR2Bucket = (): R2Bucket => {
   return {
     put: vi.fn().mockResolvedValue(undefined),
+    delete: vi.fn().mockResolvedValue(undefined),
   } as unknown as R2Bucket
 }
 
@@ -638,7 +639,7 @@ describe('reading log routes', () => {
           author: '著者',
           publisher: '出版社',
           published_at: '2000',
-          cover_url: null,
+          cover_url: 'https://pub.example.r2.dev/users/1/books/10/old-cover.jpg',
           created_at: '2026-04-13 09:00:00',
         },
       ],
@@ -673,6 +674,51 @@ describe('reading log routes', () => {
     expect(body).toContain('書影画像を更新しました')
     expect(body).toContain('https://pub.example.r2.dev/users/1/books/10/')
     expect(bucket.put).toHaveBeenCalledTimes(1)
+    expect(bucket.delete).toHaveBeenCalledWith('users/1/books/10/old-cover.jpg')
+  })
+
+  it('POST /books/:id/cover rejects oversized payload before multipart parsing', async () => {
+    const db = createMockDb({
+      initialBooks: [
+        {
+          id: 10,
+          user_id: 1,
+          isbn: '9784003101018',
+          title: 'カバー更新前',
+          author: '著者',
+          publisher: '出版社',
+          published_at: '2000',
+          cover_url: null,
+          created_at: '2026-04-13 09:00:00',
+        },
+      ],
+    })
+    const bucket = createMockR2Bucket()
+    const csrf = await fetchCsrfContext()
+
+    const res = await app.request(
+      '/books/10/cover',
+      {
+        method: 'POST',
+        headers: {
+          Cookie: `${csrf.sessionCookie}; ${csrf.csrfCookie}`,
+          'Content-Type': 'multipart/form-data; boundary=----x',
+          'Content-Length': String(2 * 1024 * 1024 + 128 * 1024 + 1),
+        },
+        body: '------x--',
+      },
+      {
+        DB: db,
+        SESSION_SECRET: TEST_SESSION_SECRET,
+        BOOK_COVERS: bucket,
+        BOOK_COVERS_PUBLIC_BASE_URL: 'https://pub.example.r2.dev',
+      }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(413)
+    expect(body).toContain('アップロードサイズが大きすぎます（2MB以下）。')
+    expect(bucket.put).not.toHaveBeenCalled()
   })
 
   it('POST /books/:id/cover returns error when file is missing', async () => {

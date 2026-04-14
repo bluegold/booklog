@@ -1,4 +1,4 @@
-import type { Hono } from 'hono'
+import type { Hono, MiddlewareHandler } from 'hono'
 import { requireAuth } from '../middleware/auth.js'
 import { csrfValidation } from '../middleware/csrf.js'
 import { getCsrfTokenFromRequest } from '../security/csrf.js'
@@ -8,9 +8,23 @@ import { ResultMessage } from '../templates/partials/result-message.js'
 import type { AppEnv } from '../types.js'
 import { pickListContext, renderBookListOob, renderErrorOobResponse } from './response-helpers.js'
 
+const MAX_COVER_UPLOAD_REQUEST_BYTES = 2 * 1024 * 1024 + 128 * 1024
+
+const enforceCoverUploadRequestSize: MiddlewareHandler<AppEnv> = async (c, next) => {
+  const contentLengthHeader = c.req.header('content-length')
+  const contentLength = Number(contentLengthHeader ?? '')
+
+  if (Number.isFinite(contentLength) && contentLength > MAX_COVER_UPLOAD_REQUEST_BYTES) {
+    c.status(413)
+    return c.html(<ResultMessage message="アップロードサイズが大きすぎます（2MB以下）。" tone="error" />)
+  }
+
+  await next()
+}
+
 export const registerCoverRoutes = (app: Hono<AppEnv>): void => {
   // 書影画像を R2 にアップロードし cover_url を更新する。
-  app.post('/books/:id/cover', requireAuth, csrfValidation, async (c) => {
+  app.post('/books/:id/cover', requireAuth, enforceCoverUploadRequestSize, csrfValidation, async (c) => {
     const csrfToken = getCsrfTokenFromRequest(c.req.raw) ?? ''
     const bookId = Number(c.req.param('id'))
     const form = c.get('parsedForm')
