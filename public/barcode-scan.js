@@ -39,9 +39,21 @@
 
   function createScanner() {
     var barcodeDetectorScanner = createBarcodeDetectorScanner();
-    if (barcodeDetectorScanner) return barcodeDetectorScanner;
+    var zxingScanner = createZxingScanner();
 
-    return createZxingScanner();
+    if (barcodeDetectorScanner && zxingScanner) {
+      return {
+        detect: async function (file) {
+          try {
+            return await barcodeDetectorScanner.detect(file);
+          } catch (_e) {
+            return await zxingScanner.detect(file);
+          }
+        },
+      };
+    }
+
+    return barcodeDetectorScanner || zxingScanner;
   }
 
   function createBarcodeDetectorScanner() {
