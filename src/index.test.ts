@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import app from './index.js'
+import { COVER_UPLOAD_REQUEST_SIZE_ERROR_MESSAGE } from './services/cover-policy.js'
 import { createSessionToken } from './security/session.js'
 
 type BookRow = {
@@ -774,7 +775,7 @@ describe('reading log routes', () => {
     const body = await res.text()
 
     expect(res.status).toBe(413)
-    expect(body).toContain('アップロードサイズが大きすぎます（2MB以下）。')
+    expect(body).toContain(COVER_UPLOAD_REQUEST_SIZE_ERROR_MESSAGE)
     expect(bucket.put).not.toHaveBeenCalled()
   })
 
@@ -820,7 +821,7 @@ describe('reading log routes', () => {
     const body = await res.text()
 
     expect(res.status).toBe(413)
-    expect(body).toContain('アップロードサイズが大きすぎます（2MB以下）。')
+    expect(body).toContain(COVER_UPLOAD_REQUEST_SIZE_ERROR_MESSAGE)
     expect(bucket.put).not.toHaveBeenCalled()
   })
 
@@ -863,7 +864,7 @@ describe('reading log routes', () => {
     const body = await res.text()
 
     expect(res.status).toBe(413)
-    expect(body).toContain('アップロードサイズが大きすぎます（2MB以下）。')
+    expect(body).toContain(COVER_UPLOAD_REQUEST_SIZE_ERROR_MESSAGE)
     expect(bucket.put).not.toHaveBeenCalled()
   })
 

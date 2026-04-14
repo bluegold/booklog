@@ -1,7 +1,7 @@
 import { fetchBookByIdForUser, updateBookCoverUrlByIdForUser } from '../repositories/books-repository.js'
 import { getManagedCoverObjectKeyForBook } from './cover-url-utils.js'
+import { COVER_IMAGE_MAX_BYTES, COVER_SIZE_ERROR_MESSAGE } from './cover-policy.js'
 
-const MAX_COVER_IMAGE_BYTES = 2 * 1024 * 1024
 const MAX_COVER_REPLACE_ATTEMPTS = 3
 const coverMimeToExt: Record<string, 'jpg' | 'png' | 'webp'> = {
   'image/jpeg': 'jpg',
@@ -11,6 +11,7 @@ const coverMimeToExt: Record<string, 'jpg' | 'png' | 'webp'> = {
 
 export type UploadBookCoverResult =
   | { status: 'validation-error'; message: string }
+  | { status: 'conflict'; message: string }
   | { status: 'not-found'; message: string }
   | { status: 'success'; message: string }
 
@@ -58,10 +59,10 @@ export const uploadBookCover = async (
     }
   }
 
-  if (file.size > MAX_COVER_IMAGE_BYTES) {
+  if (file.size > COVER_IMAGE_MAX_BYTES) {
     return {
       status: 'validation-error',
-      message: '画像サイズは2MB以下にしてください。',
+      message: COVER_SIZE_ERROR_MESSAGE,
     }
   }
 
@@ -128,7 +129,7 @@ export const uploadBookCover = async (
   }
 
   return {
-    status: 'validation-error',
+    status: 'conflict',
     message: '書影更新中に競合が発生しました。もう一度お試しください。',
   }
 }

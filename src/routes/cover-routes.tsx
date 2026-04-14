@@ -3,17 +3,16 @@ import { requireAuth } from '../middleware/auth.js'
 import { csrfValidation } from '../middleware/csrf.js'
 import { getCsrfTokenFromRequest } from '../security/csrf.js'
 import { listBooks } from '../services/books-service.js'
+import { COVER_UPLOAD_MAX_REQUEST_BYTES, COVER_UPLOAD_REQUEST_SIZE_ERROR_MESSAGE } from '../services/cover-policy.js'
 import { uploadBookCover } from '../services/cover-service.js'
 import { ResultMessage } from '../templates/partials/result-message.js'
 import type { AppEnv } from '../types.js'
 import { pickListContext, renderBookListOob, renderErrorOobResponse } from './response-helpers.js'
 
-const MAX_COVER_UPLOAD_REQUEST_BYTES = 2 * 1024 * 1024 + 128 * 1024
-
 const enforceCoverUploadRequestSize: MiddlewareHandler<AppEnv> = async (c, next) => {
   const rejectTooLarge = () => {
     c.status(413)
-    return c.html(<ResultMessage message="アップロードサイズが大きすぎます（2MB以下）。" tone="error" />)
+    return c.html(<ResultMessage message={COVER_UPLOAD_REQUEST_SIZE_ERROR_MESSAGE} tone="error" />)
   }
 
   const contentLengthHeader = c.req.header('content-length')
@@ -28,7 +27,7 @@ const enforceCoverUploadRequestSize: MiddlewareHandler<AppEnv> = async (c, next)
     return rejectTooLarge()
   }
 
-  if (contentLength > MAX_COVER_UPLOAD_REQUEST_BYTES) {
+  if (contentLength > COVER_UPLOAD_MAX_REQUEST_BYTES) {
     return rejectTooLarge()
   }
 
