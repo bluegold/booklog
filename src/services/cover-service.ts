@@ -2,6 +2,7 @@ import { fetchBookByIdForUser, updateBookCoverUrlByIdForUser } from '../reposito
 import { getManagedCoverObjectKeyForBook } from './cover-url-utils.js'
 
 const MAX_COVER_IMAGE_BYTES = 2 * 1024 * 1024
+const MAX_COVER_REPLACE_ATTEMPTS = 3
 const coverMimeToExt: Record<string, 'jpg' | 'png' | 'webp'> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
@@ -64,66 +65,70 @@ export const uploadBookCover = async (
     }
   }
 
-  const book = await fetchBookByIdForUser(db, userId, bookId)
-  if (!book) {
-    return {
-      status: 'not-found',
-      message: '対象の本が見つかりませんでした。',
-    }
-  }
-
   const normalizedBaseUrl = publicBaseUrl.replace(/\/+$/, '')
-  const previousManagedObjectKey = getManagedCoverObjectKeyForBook(book.cover_url, publicBaseUrl, userId, bookId)
-
-  const objectKey = `users/${userId}/books/${bookId}/${Date.now()}-${crypto.randomUUID()}.${extension}`
-  await bucket.put(objectKey, await file.arrayBuffer(), {
-    httpMetadata: {
-      contentType: file.type,
-    },
-  })
-
-  const cleanupUploadedObject = async (): Promise<void> => {
-    try {
-      await bucket.delete(objectKey)
-    } catch (cleanupError) {
-      console.error('[cover-service] cleanup failed after upload', {
-        objectKey,
-        error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
-      })
+  for (let attempt = 0; attempt < MAX_COVER_REPLACE_ATTEMPTS; attempt += 1) {
+    const book = await fetchBookByIdForUser(db, userId, bookId)
+    if (!book) {
+      return {
+        status: 'not-found',
+        message: '対象の本が見つかりませんでした。',
+      }
     }
-  }
 
-  const coverUrl = `${normalizedBaseUrl}/${objectKey}`
+    const previousManagedObjectKey = getManagedCoverObjectKeyForBook(book.cover_url, publicBaseUrl, userId, bookId)
 
-  let updated: boolean
-  try {
-    updated = await updateBookCoverUrlByIdForUser(db, userId, bookId, coverUrl)
-  } catch (error) {
-    await cleanupUploadedObject()
-    throw error
-  }
+    const objectKey = `users/${userId}/books/${bookId}/${Date.now()}-${crypto.randomUUID()}.${extension}`
+    await bucket.put(objectKey, await file.arrayBuffer(), {
+      httpMetadata: {
+        contentType: file.type,
+      },
+    })
 
-  if (!updated) {
-    await cleanupUploadedObject()
+    const cleanupUploadedObject = async (): Promise<void> => {
+      try {
+        await bucket.delete(objectKey)
+      } catch (cleanupError) {
+        console.error('[cover-service] cleanup failed after upload', {
+          objectKey,
+          error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+        })
+      }
+    }
+
+    const coverUrl = `${normalizedBaseUrl}/${objectKey}`
+
+    let updated: boolean
+    try {
+      updated = await updateBookCoverUrlByIdForUser(db, userId, bookId, book.cover_url, coverUrl)
+    } catch (error) {
+      await cleanupUploadedObject()
+      throw error
+    }
+
+    if (!updated) {
+      await cleanupUploadedObject()
+      continue
+    }
+
+    if (previousManagedObjectKey && previousManagedObjectKey !== objectKey) {
+      try {
+        await bucket.delete(previousManagedObjectKey)
+      } catch (cleanupError) {
+        console.error('[cover-service] cleanup failed for previous cover', {
+          objectKey: previousManagedObjectKey,
+          error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+        })
+      }
+    }
+
     return {
-      status: 'not-found',
-      message: '対象の本が見つかりませんでした。',
-    }
-  }
-
-  if (previousManagedObjectKey && previousManagedObjectKey !== objectKey) {
-    try {
-      await bucket.delete(previousManagedObjectKey)
-    } catch (cleanupError) {
-      console.error('[cover-service] cleanup failed for previous cover', {
-        objectKey: previousManagedObjectKey,
-        error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
-      })
+      status: 'success',
+      message: '書影画像を更新しました',
     }
   }
 
   return {
-    status: 'success',
-    message: '書影画像を更新しました',
+    status: 'validation-error',
+    message: '書影更新中に競合が発生しました。もう一度お試しください。',
   }
 }
