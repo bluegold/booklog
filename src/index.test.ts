@@ -709,6 +709,7 @@ describe('reading log routes', () => {
         method: 'POST',
         headers: {
           Cookie: `${csrf.sessionCookie}; ${csrf.csrfCookie}`,
+          'Content-Length': '1024',
         },
         body: form,
       },
@@ -818,6 +819,49 @@ describe('reading log routes', () => {
     expect(bucket.put).not.toHaveBeenCalled()
   })
 
+  it('POST /books/:id/cover rejects request when Content-Length is missing', async () => {
+    const db = createMockDb({
+      initialBooks: [
+        {
+          id: 10,
+          user_id: 1,
+          isbn: '9784003101018',
+          title: 'カバー更新前',
+          author: '著者',
+          publisher: '出版社',
+          published_at: '2000',
+          cover_url: null,
+          created_at: '2026-04-13 09:00:00',
+        },
+      ],
+    })
+    const bucket = createMockR2Bucket()
+    const csrf = await fetchCsrfContext()
+
+    const res = await app.request(
+      '/books/10/cover',
+      {
+        method: 'POST',
+        headers: {
+          Cookie: `${csrf.sessionCookie}; ${csrf.csrfCookie}`,
+          'Content-Type': 'multipart/form-data; boundary=----x',
+        },
+        body: '------x--',
+      },
+      {
+        DB: db,
+        SESSION_SECRET: TEST_SESSION_SECRET,
+        BOOK_COVERS: bucket,
+        BOOK_COVERS_PUBLIC_BASE_URL: 'https://pub.example.r2.dev',
+      }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(413)
+    expect(body).toContain('アップロードサイズが大きすぎます（2MB以下）。')
+    expect(bucket.put).not.toHaveBeenCalled()
+  })
+
   it('POST /books/:id/cover returns error when file is missing', async () => {
     const db = createMockDb({
       initialBooks: [
@@ -847,6 +891,7 @@ describe('reading log routes', () => {
         method: 'POST',
         headers: {
           Cookie: `${csrf.sessionCookie}; ${csrf.csrfCookie}`,
+          'Content-Length': '512',
         },
         body: form,
       },

@@ -17,10 +17,14 @@ const enforceCoverUploadRequestSize: MiddlewareHandler<AppEnv> = async (c, next)
   }
 
   const contentLengthHeader = c.req.header('content-length')
-  const contentLength = Number(contentLengthHeader ?? '')
+  if (!contentLengthHeader) {
+    return rejectTooLarge()
+  }
+
+  const contentLength = Number(contentLengthHeader)
 
   if (!Number.isFinite(contentLength)) {
-    // Content-Length が不正または未指定の場合は multipart 解析前に拒否する。
+    // Content-Length が不正な場合は multipart 解析前に拒否する。
     return rejectTooLarge()
   }
 
