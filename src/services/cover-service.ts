@@ -78,11 +78,30 @@ export const uploadBookCover = async (
     },
   })
 
+  const cleanupUploadedObject = async (): Promise<void> => {
+    try {
+      await bucket.delete(objectKey)
+    } catch (cleanupError) {
+      console.error('[cover-service] cleanup failed after upload', {
+        objectKey,
+        error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+      })
+    }
+  }
+
   const normalizedBaseUrl = publicBaseUrl.replace(/\/+$/, '')
   const coverUrl = `${normalizedBaseUrl}/${objectKey}`
-  const updated = await updateBookCoverUrlByIdForUser(db, userId, bookId, coverUrl)
+
+  let updated: boolean
+  try {
+    updated = await updateBookCoverUrlByIdForUser(db, userId, bookId, coverUrl)
+  } catch (error) {
+    await cleanupUploadedObject()
+    throw error
+  }
 
   if (!updated) {
+    await cleanupUploadedObject()
     return {
       status: 'not-found',
       message: '対象の本が見つかりませんでした。',
