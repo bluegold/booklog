@@ -601,6 +601,71 @@ describe('reading log routes', () => {
     expect(followBody).toContain('impersonate 中')
   })
 
+  it('GET /books rejects impersonation session when impersonator is demoted in DB', async () => {
+    const db = createMockDb({
+      initialUsers: [
+        {
+          id: 1,
+          google_sub: 'demoted-admin-sub',
+          email: 'admin@example.com',
+          name: 'Demoted Admin',
+          user_type: 'user',
+          picture_url: null,
+          created_at: '2026-04-14 09:00:00',
+        },
+        {
+          id: 2,
+          google_sub: 'target-user-sub',
+          email: 'target@example.com',
+          name: 'Target User',
+          user_type: 'user',
+          picture_url: null,
+          created_at: '2026-04-13 09:00:00',
+        },
+      ],
+      initialBooks: [
+        {
+          id: 1,
+          user_id: 2,
+          isbn: '9784003101018',
+          title: 'Target Book',
+          author: null,
+          publisher: null,
+          published_at: null,
+          cover_url: null,
+          created_at: '2026-04-13 10:00:00',
+        },
+      ],
+    })
+    const impersonationSessionCookie = await createSessionCookie({
+      id: 2,
+      email: 'target@example.com',
+      name: 'Target User',
+      userType: 'user',
+      impersonator: {
+        id: 1,
+        email: 'admin@example.com',
+        name: 'Demoted Admin',
+      },
+    })
+
+    const res = await app.request(
+      '/books',
+      {
+        headers: {
+          Cookie: impersonationSessionCookie,
+        },
+      },
+      { DB: db, SESSION_SECRET: TEST_SESSION_SECRET }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(401)
+    expect(body).toContain('ログインが必要です。')
+    expect(res.headers.get('set-cookie')).toContain('session_token=')
+    expect(res.headers.get('set-cookie')).toContain('Max-Age=0')
+  })
+
   it('GET /books returns 401 when not authenticated', async () => {
     const db = createMockDb()
     const res = await app.request('/books', undefined, { DB: db })
