@@ -68,6 +68,19 @@ const createMockDb = (options: MockDbOptions = {}): D1Database => {
           return this
         },
         async run() {
+          if (sql.startsWith('UPDATE books SET cover_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?')) {
+            const bookId = Number(boundParams[1] ?? 0)
+            const userId = Number(boundParams[2] ?? 0)
+            const target = books.find((book) => book.id === bookId && book.user_id === userId)
+            if (!target) {
+              return { success: true, meta: { changes: 0 } }
+            }
+
+            target.cover_url = boundParams[0] != null ? String(boundParams[0]) : null
+            target.updated_at = '2026-04-14 10:00:00'
+            return { success: true, meta: { changes: 1 } }
+          }
+
           if (sql.startsWith('UPDATE books SET')) {
             const bookId = Number(boundParams[5] ?? 0)
             const userId = Number(boundParams[6] ?? 0)
@@ -160,6 +173,12 @@ const createMockDb = (options: MockDbOptions = {}): D1Database => {
       }
     },
   } as unknown as D1Database
+}
+
+const createMockR2Bucket = (): R2Bucket => {
+  return {
+    put: vi.fn().mockResolvedValue(undefined),
+  } as unknown as R2Bucket
 }
 
 const createSessionCookie = async (): Promise<string> => {
@@ -606,6 +625,100 @@ describe('reading log routes', () => {
     expect(res.status).toBe(200)
     expect(body).toContain('更新しました')
     expect(body).toContain('編集後タイトル')
+  })
+
+  it('POST /books/:id/cover uploads image and returns success', async () => {
+    const db = createMockDb({
+      initialBooks: [
+        {
+          id: 10,
+          user_id: 1,
+          isbn: '9784003101018',
+          title: 'カバー更新前',
+          author: '著者',
+          publisher: '出版社',
+          published_at: '2000',
+          cover_url: null,
+          created_at: '2026-04-13 09:00:00',
+        },
+      ],
+    })
+    const bucket = createMockR2Bucket()
+    const csrf = await fetchCsrfContext()
+    const form = new FormData()
+    form.set('csrf_token', csrf.token)
+    form.set('q', '')
+    form.set('page', '1')
+    form.set('cover_image', new File(['fake-image'], 'cover.jpg', { type: 'image/jpeg' }))
+
+    const res = await app.request(
+      '/books/10/cover',
+      {
+        method: 'POST',
+        headers: {
+          Cookie: `${csrf.sessionCookie}; ${csrf.csrfCookie}`,
+        },
+        body: form,
+      },
+      {
+        DB: db,
+        SESSION_SECRET: TEST_SESSION_SECRET,
+        BOOK_COVERS: bucket,
+        BOOK_COVERS_PUBLIC_BASE_URL: 'https://pub.example.r2.dev',
+      }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(body).toContain('書影画像を更新しました')
+    expect(body).toContain('https://pub.example.r2.dev/users/1/books/10/')
+    expect(bucket.put).toHaveBeenCalledTimes(1)
+  })
+
+  it('POST /books/:id/cover returns error when file is missing', async () => {
+    const db = createMockDb({
+      initialBooks: [
+        {
+          id: 10,
+          user_id: 1,
+          isbn: '9784003101018',
+          title: 'カバー更新前',
+          author: '著者',
+          publisher: '出版社',
+          published_at: '2000',
+          cover_url: null,
+          created_at: '2026-04-13 09:00:00',
+        },
+      ],
+    })
+    const bucket = createMockR2Bucket()
+    const csrf = await fetchCsrfContext()
+    const form = new FormData()
+    form.set('csrf_token', csrf.token)
+    form.set('q', '')
+    form.set('page', '1')
+
+    const res = await app.request(
+      '/books/10/cover',
+      {
+        method: 'POST',
+        headers: {
+          Cookie: `${csrf.sessionCookie}; ${csrf.csrfCookie}`,
+        },
+        body: form,
+      },
+      {
+        DB: db,
+        SESSION_SECRET: TEST_SESSION_SECRET,
+        BOOK_COVERS: bucket,
+        BOOK_COVERS_PUBLIC_BASE_URL: 'https://pub.example.r2.dev',
+      }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(body).toContain('アップロードする画像ファイルを選択してください。')
+    expect(bucket.put).not.toHaveBeenCalled()
   })
 
   it('POST /books/:id/delete removes the book and returns success', async () => {

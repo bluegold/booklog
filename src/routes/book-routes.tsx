@@ -2,7 +2,7 @@ import type { Hono } from 'hono'
 import { requireAuth } from '../middleware/auth.js'
 import { csrfValidation } from '../middleware/csrf.js'
 import { getCsrfTokenFromRequest } from '../security/csrf.js'
-import { addBookByIsbn, addBookManual, deleteBook, getBookForEdit, listBooks, updateBookFields } from '../services/books-service.js'
+import { addBookByIsbn, addBookManual, deleteBook, getBookForEdit, listBooks, updateBookFields, uploadBookCover } from '../services/books-service.js'
 import { BookListContent } from '../templates/partials/book-list.js'
 import { BookMetadataFields } from '../templates/partials/book-metadata-fields.js'
 import { ResultMessage } from '../templates/partials/result-message.js'
@@ -123,36 +123,73 @@ const renderInlineEditForm = (
   context: ListContext
 ) => {
   return (
-    <form
-      hx-post={`/books/${book.id}/edit`}
-      hx-target="#result"
-      hx-swap="innerHTML"
-      class="inline-form-enter rounded-lg border border-stone-200 bg-stone-50 p-3"
-    >
-      <input type="hidden" name="csrf_token" value={csrfToken} />
-      <input type="hidden" name="q" value={context.query} />
-      <input type="hidden" name="page" value={String(context.page)} />
+    <div class="inline-form-enter space-y-3 rounded-lg border border-stone-200 bg-stone-50 p-3">
       <div class="mb-2 text-xs text-stone-600">ISBN: {book.isbn ?? '-'}</div>
-      <BookMetadataFields
-        title={book.title}
-        author={book.author}
-        publisher={book.publisher}
-        publishedAt={book.published_at}
-        coverUrl={book.cover_url}
-      />
-      <div class="mt-3 flex items-center justify-end gap-2">
-        <button
-          type="button"
-          class="rounded-md border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 transition hover:bg-stone-100"
-          onclick={`document.getElementById('book-edit-${book.id}').innerHTML=''`}
-        >
-          キャンセル
-        </button>
-        <button type="submit" class="rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-800">
-          保存
-        </button>
-      </div>
-    </form>
+      <form
+        hx-post={`/books/${book.id}/cover`}
+        hx-target="#result"
+        hx-swap="innerHTML"
+        hx-encoding="multipart/form-data"
+        class="mb-3 rounded-md border border-stone-200 bg-white p-2"
+      >
+        <input type="hidden" name="csrf_token" value={csrfToken} />
+        <input type="hidden" name="q" value={context.query} />
+        <input type="hidden" name="page" value={String(context.page)} />
+        <label class="block text-xs text-stone-600">
+          書影画像（JPEG / PNG / WebP, 2MB以下）
+          <input
+            type="file"
+            name="cover_image"
+            accept="image/jpeg,image/png,image/webp"
+            class="mt-1 block w-full rounded-md border border-stone-300 bg-white px-2 py-1 text-xs text-stone-700"
+            onchange={`(function(input){var prev=document.getElementById('cover-preview-${book.id}');if(input.files&&input.files[0]){var reader=new FileReader();reader.onload=function(e){prev.src=e.target.result;prev.classList.remove('hidden')};reader.readAsDataURL(input.files[0])}else{prev.src='';prev.classList.add('hidden')}})(this)`}
+          />
+        </label>
+        <img
+          id={`cover-preview-${book.id}`}
+          src=""
+          alt="書影プレビュー"
+          class="hidden mt-2 h-24 w-auto rounded-md border border-stone-200 object-cover"
+        />
+        <div class="mt-2 flex justify-end">
+          <button
+            type="submit"
+            class="rounded-md border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 transition hover:bg-stone-100"
+          >
+            書影をアップロード
+          </button>
+        </div>
+      </form>
+
+      <form
+        hx-post={`/books/${book.id}/edit`}
+        hx-target="#result"
+        hx-swap="innerHTML"
+      >
+        <input type="hidden" name="csrf_token" value={csrfToken} />
+        <input type="hidden" name="q" value={context.query} />
+        <input type="hidden" name="page" value={String(context.page)} />
+        <BookMetadataFields
+          title={book.title}
+          author={book.author}
+          publisher={book.publisher}
+          publishedAt={book.published_at}
+          coverUrl={book.cover_url}
+        />
+        <div class="mt-3 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            class="rounded-md border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 transition hover:bg-stone-100"
+            onclick={`document.getElementById('book-edit-${book.id}').innerHTML=''`}
+          >
+            キャンセル
+          </button>
+          <button type="submit" class="rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-800">
+            保存
+          </button>
+        </div>
+      </form>
+    </div>
   )
 }
 
@@ -252,6 +289,36 @@ export const registerBookRoutes = (app: Hono<AppEnv>): void => {
 
     const listing = await listBooks(c.env.DB, c.get('authUser')!.id, context)
     if (result.status === 'not-found') {
+      return c.html(renderErrorOobResponse(result.message, listing, csrfToken))
+    }
+
+    return c.html(renderSuccessOobResponse(result.message, listing, csrfToken))
+  })
+
+  app.post('/books/:id/cover', requireAuth, csrfValidation, async (c) => {
+    const csrfToken = getCsrfTokenFromRequest(c.req.raw) ?? ''
+    const bookId = Number(c.req.param('id'))
+    const form = c.get('parsedForm')
+    const context = pickListContext({ query: form.get('q')?.toString() ?? '', page: form.get('page')?.toString() ?? '1' })
+
+    if (!Number.isFinite(bookId)) {
+      const listing = await listBooks(c.env.DB, c.get('authUser')!.id, context)
+      return c.html(renderErrorOobResponse('対象の本が見つかりませんでした。', listing, csrfToken))
+    }
+
+    const rawFile = form.get('cover_image')
+    const file = rawFile instanceof File ? rawFile : null
+    const result = await uploadBookCover(
+      c.env.DB,
+      c.env.BOOK_COVERS,
+      c.env.BOOK_COVERS_PUBLIC_BASE_URL,
+      c.get('authUser')!.id,
+      bookId,
+      file
+    )
+
+    const listing = await listBooks(c.env.DB, c.get('authUser')!.id, context)
+    if (result.status !== 'success') {
       return c.html(renderErrorOobResponse(result.message, listing, csrfToken))
     }
 

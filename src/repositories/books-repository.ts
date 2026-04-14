@@ -106,6 +106,20 @@ export const updateBookByIdForUser = async (
   return (result.meta?.changes ?? 0) > 0
 }
 
+export const updateBookCoverUrlByIdForUser = async (
+  db: D1Database,
+  userId: number,
+  bookId: number,
+  coverUrl: string
+): Promise<boolean> => {
+  const result = await db
+    .prepare('UPDATE books SET cover_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?')
+    .bind(coverUrl, bookId, userId)
+    .run<{ changes?: number }>()
+
+  return (result.meta?.changes ?? 0) > 0
+}
+
 export const deleteBookByIdForUser = async (db: D1Database, userId: number, bookId: number): Promise<boolean> => {
   const result = await db.prepare('DELETE FROM books WHERE id = ? AND user_id = ?').bind(bookId, userId).run<{ changes?: number }>()
   return (result.meta?.changes ?? 0) > 0

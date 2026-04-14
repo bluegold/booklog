@@ -1,7 +1,7 @@
 {
 	"name": "booklog",
 	"main": "src/index.tsx",
-	"compatibility_date": "2026-01-01",
+  "compatibility_date": "2026-01-01",
   "keep_vars": true,
 
 	"assets": {
@@ -14,6 +14,15 @@
 			"database_id": "ea5d37c0-c8ba-4c04-82c0-4009a0514c1f"
 		}
 	],
+  "r2_buckets": [
+    {
+      "binding": "BOOK_COVERS",
+      "bucket_name": "booklog-covers"
+    }
+  ],
+  "vars": {
+    "BOOK_COVERS_PUBLIC_BASE_URL": "https://pub-424ff2070b3d408b91daa7c0df91b4b6.r2.dev"
+  },
   "observability": {
     "enabled": false,
     "head_sampling_rate": 1,
