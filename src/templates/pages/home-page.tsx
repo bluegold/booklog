@@ -58,6 +58,7 @@ export const HomePage = (props: HomePageProps) => {
                 </details>
               ) : null}
               <form method="post" action="/auth/logout">
+                <input type="hidden" name="csrf_token" value={props.csrfToken} />
                 <button type="submit" class="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-100">
                   ログアウト
                 </button>

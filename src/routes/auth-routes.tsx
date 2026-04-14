@@ -10,6 +10,7 @@ import {
   createSessionToken,
   getOAuthStateFromRequest,
 } from '../security/session.js'
+import { csrfValidation } from '../middleware/csrf.js'
 import { ResultMessage } from '../templates/partials/result-message.js'
 import type { AppEnv } from '../types.js'
 
@@ -158,7 +159,7 @@ export const registerAuthRoutes = (app: Hono<AppEnv>): void => {
   })
 
   // セッション Cookie を削除してログアウトする。
-  app.post('/auth/logout', (c) => {
+  app.post('/auth/logout', csrfValidation, (c) => {
     const isSecure = getIsSecureRequest(c.req.url)
     c.header('Set-Cookie', buildSessionClearCookie(isSecure), { append: true })
     return c.redirect('/')

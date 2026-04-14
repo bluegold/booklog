@@ -7,7 +7,7 @@ import { COVER_UPLOAD_MAX_REQUEST_BYTES, COVER_UPLOAD_REQUEST_SIZE_ERROR_MESSAGE
 import { uploadBookCover } from '../services/cover-service.js'
 import { ResultMessage } from '../templates/partials/result-message.js'
 import type { AppEnv } from '../types.js'
-import { pickListContext, renderBookListOob, renderErrorOobResponse } from './response-helpers.js'
+import { pickListContext, renderBookListOobResponse } from './response-helpers.js'
 
 const enforceCoverUploadRequestSize: MiddlewareHandler<AppEnv> = async (c, next) => {
   const rejectTooLarge = () => {
@@ -43,7 +43,14 @@ export const registerCoverRoutes = (app: Hono<AppEnv>): void => {
 
     if (!Number.isFinite(bookId)) {
       const listing = await listBooks(c.env.DB, c.get('authUser')!.id, context)
-      return c.html(renderErrorOobResponse('対象の本が見つかりませんでした。', listing, csrfToken))
+      return c.html(
+        renderBookListOobResponse({
+          tone: 'error',
+          message: '対象の本が見つかりませんでした。',
+          listing,
+          csrfToken,
+        })
+      )
     }
 
     const rawFile = form.get('cover_image')
@@ -59,14 +66,23 @@ export const registerCoverRoutes = (app: Hono<AppEnv>): void => {
 
     const listing = await listBooks(c.env.DB, c.get('authUser')!.id, context)
     if (result.status !== 'success') {
-      return c.html(renderErrorOobResponse(result.message, listing, csrfToken))
+      return c.html(
+        renderBookListOobResponse({
+          tone: 'error',
+          message: result.message,
+          listing,
+          csrfToken,
+        })
+      )
     }
 
     return c.html(
-      <>
-        <ResultMessage message={result.message} tone="success" />
-        {renderBookListOob(listing, csrfToken)}
-      </>
+      renderBookListOobResponse({
+        tone: 'success',
+        message: result.message,
+        listing,
+        csrfToken,
+      })
     )
   })
 }

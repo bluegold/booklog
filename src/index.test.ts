@@ -2,37 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import app from './index.js'
 import { COVER_UPLOAD_REQUEST_SIZE_ERROR_MESSAGE } from './services/cover-policy.js'
 import { createSessionToken } from './security/session.js'
-
-type BookRow = {
-  id: number
-  user_id: number
-  isbn: string | null
-  title: string | null
-  author: string | null
-  publisher: string | null
-  published_at: string | null
-  cover_url: string | null
-  created_at: string | null
-  updated_at?: string | null
-}
-
-type UserRow = {
-  id: number
-  google_sub: string
-  email: string
-  name: string | null
-  user_type: 'user' | 'admin'
-  picture_url: string | null
-  created_at: string | null
-}
-
-type MockDbOptions = {
-  initialBooks?: BookRow[]
-  initialUsers?: UserRow[]
-  insertError?: Error
-  forceCoverUpdateNoChange?: boolean
-  simulateConcurrentCoverUploadOnNextEditUpdate?: string
-}
+import { createMockDb, type BookRow } from './test-support/mock-db.js'
 
 type SessionUserOptions = {
   id?: number
@@ -53,248 +23,6 @@ type CsrfContext = {
 }
 
 const TEST_SESSION_SECRET = 'test-session-secret'
-
-const createMockDb = (options: MockDbOptions = {}): D1Database => {
-  const books: BookRow[] = [...(options.initialBooks ?? [])]
-  const users: UserRow[] = [
-    ...(options.initialUsers ?? [
-      {
-        id: 1,
-        google_sub: 'google-sub-1',
-        email: 'tester@example.com',
-        name: 'Tester',
-        user_type: 'user',
-        picture_url: null,
-        created_at: '2026-04-13 09:00:00',
-      },
-    ]),
-  ]
-  let nextId = books.length + 1
-  let nextUserId = users.length + 1
-  let didSimulateConcurrentCoverUploadOnEditUpdate = false
-
-  const filterBooks = (targetUserId: number, query: string): BookRow[] => {
-    const normalizedQuery = query.trim().toLowerCase()
-    const filtered = books.filter((book) => {
-      if (book.user_id !== targetUserId) {
-        return false
-      }
-
-      if (normalizedQuery.length === 0) {
-        return true
-      }
-
-      const fields = [book.isbn, book.title, book.author, book.publisher]
-      return fields.some((value) => (value ?? '').toLowerCase().includes(normalizedQuery))
-    })
-
-    return filtered.sort((a, b) => {
-      const timeA = new Date((a.created_at ?? '').replace(' ', 'T') + 'Z').getTime()
-      const timeB = new Date((b.created_at ?? '').replace(' ', 'T') + 'Z').getTime()
-      if (timeA !== timeB) {
-        return timeB - timeA
-      }
-
-      return b.id - a.id
-    })
-  }
-
-  return {
-    prepare(sql: string) {
-      let boundParams: unknown[] = []
-
-      return {
-        bind(...params: unknown[]) {
-          boundParams = params
-          return this
-        },
-        async run() {
-          if (sql.startsWith('INSERT INTO users (google_sub, email, name, picture_url)')) {
-            const googleSub = String(boundParams[0] ?? '')
-            const email = String(boundParams[1] ?? '')
-            const name = boundParams[2] != null ? String(boundParams[2]) : null
-            const pictureUrl = boundParams[3] != null ? String(boundParams[3]) : null
-            const existing = users.find((user) => user.google_sub === googleSub)
-
-            if (existing) {
-              existing.email = email
-              existing.name = name
-              existing.picture_url = pictureUrl
-              return { success: true, meta: { changes: 1 } }
-            }
-
-            users.push({
-              id: nextUserId,
-              google_sub: googleSub,
-              email,
-              name,
-              user_type: 'user',
-              picture_url: pictureUrl,
-              created_at: '2026-04-13 10:00:00',
-            })
-            nextUserId += 1
-            return { success: true, meta: { changes: 1 } }
-          }
-
-          if (sql.startsWith('UPDATE books SET cover_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?')) {
-            if (options.forceCoverUpdateNoChange === true) {
-              return { success: true, meta: { changes: 0 } }
-            }
-
-            const bookId = Number(boundParams[1] ?? 0)
-            const userId = Number(boundParams[2] ?? 0)
-            const expectedCoverUrl = boundParams[3] != null ? String(boundParams[3]) : null
-            const target = books.find((book) => book.id === bookId && book.user_id === userId)
-            if (!target) {
-              return { success: true, meta: { changes: 0 } }
-            }
-
-            const currentCoverUrl = target.cover_url ?? null
-            if (currentCoverUrl !== expectedCoverUrl) {
-              return { success: true, meta: { changes: 0 } }
-            }
-
-            target.cover_url = boundParams[0] != null ? String(boundParams[0]) : null
-            target.updated_at = '2026-04-14 10:00:00'
-            return { success: true, meta: { changes: 1 } }
-          }
-
-          if (sql.startsWith('UPDATE books SET')) {
-            const bookId = Number(boundParams[5] ?? 0)
-            const userId = Number(boundParams[6] ?? 0)
-            const expectedCoverUrl = boundParams[7] != null ? String(boundParams[7]) : null
-            const target = books.find((book) => book.id === bookId && book.user_id === userId)
-            if (!target) {
-              return { success: true, meta: { changes: 0 } }
-            }
-
-            if (options.simulateConcurrentCoverUploadOnNextEditUpdate && !didSimulateConcurrentCoverUploadOnEditUpdate) {
-              target.cover_url = options.simulateConcurrentCoverUploadOnNextEditUpdate
-              didSimulateConcurrentCoverUploadOnEditUpdate = true
-            }
-
-            const currentCoverUrl = target.cover_url ?? null
-            if (currentCoverUrl !== expectedCoverUrl) {
-              return { success: true, meta: { changes: 0 } }
-            }
-
-            target.title = boundParams[0] != null ? String(boundParams[0]) : null
-            target.author = boundParams[1] != null ? String(boundParams[1]) : null
-            target.publisher = boundParams[2] != null ? String(boundParams[2]) : null
-            target.published_at = boundParams[3] != null ? String(boundParams[3]) : null
-            target.cover_url = boundParams[4] != null ? String(boundParams[4]) : null
-            target.updated_at = '2026-04-14 10:00:00'
-            return { success: true, meta: { changes: 1 } }
-          }
-
-          if (sql.startsWith('DELETE FROM books WHERE id = ? AND user_id = ?')) {
-            const bookId = Number(boundParams[0] ?? 0)
-            const userId = Number(boundParams[1] ?? 0)
-            const index = books.findIndex((book) => book.id === bookId && book.user_id === userId)
-            if (index < 0) {
-              return { success: true, meta: { changes: 0 } }
-            }
-
-            books.splice(index, 1)
-            return { success: true, meta: { changes: 1 } }
-          }
-
-          if (!sql.startsWith('INSERT INTO books')) {
-            return { success: true, meta: { changes: 0 } }
-          }
-
-          if (options.insertError) {
-            throw options.insertError
-          }
-
-          const user_id = Number(boundParams[0] ?? 0)
-          const isbn = String(boundParams[1] ?? '')
-          const title = boundParams[2] != null ? String(boundParams[2]) : null
-          const author = boundParams[3] != null ? String(boundParams[3]) : null
-          const publisher = boundParams[4] != null ? String(boundParams[4]) : null
-          const published_at = boundParams[5] != null ? String(boundParams[5]) : null
-          const cover_url = boundParams[6] != null ? String(boundParams[6]) : null
-          books.unshift({
-            id: nextId,
-            user_id,
-            isbn,
-            title,
-            author,
-            publisher,
-            published_at,
-            cover_url,
-            created_at: '2026-04-13 10:00:00',
-            updated_at: '2026-04-13 10:00:00',
-          })
-          nextId += 1
-
-          return { success: true, meta: { changes: 1 } }
-        },
-        async all<T>() {
-          if (sql.startsWith('SELECT\n        users.id,')) {
-            const sortedUsers = [...users].sort((a, b) => {
-              const timeA = new Date((a.created_at ?? '').replace(' ', 'T') + 'Z').getTime()
-              const timeB = new Date((b.created_at ?? '').replace(' ', 'T') + 'Z').getTime()
-              if (timeA !== timeB) {
-                return timeB - timeA
-              }
-
-              return b.id - a.id
-            })
-            const results = sortedUsers.map((user) => ({
-              id: user.id,
-              email: user.email,
-              name: user.name,
-              user_type: user.user_type,
-              book_count: books.filter((book) => book.user_id === user.id).length,
-            }))
-            return { results: results as T[] }
-          }
-
-          if (sql.startsWith('SELECT COUNT(*) AS total_count FROM books WHERE user_id = ?')) {
-            const targetUserId = Number(boundParams[0] ?? 0)
-            const query = String(boundParams[1] ?? '')
-            const total_count = filterBooks(targetUserId, query).length
-            return { results: [{ total_count }] as T[] }
-          }
-
-          if (sql.startsWith('SELECT id, user_id, isbn, title, author, publisher, published_at, cover_url, created_at, updated_at FROM books WHERE user_id = ?')) {
-            const targetUserId = Number(boundParams[0] ?? 0)
-            const query = String(boundParams[1] ?? '')
-            const limit = Number(boundParams[6] ?? 10)
-            const offset = Number(boundParams[7] ?? 0)
-            const filtered = filterBooks(targetUserId, query)
-            return { results: filtered.slice(offset, offset + limit) as T[] }
-          }
-
-          return { results: [] as T[] }
-        },
-        async first<T>() {
-          if (sql.startsWith('SELECT id, google_sub, email, name, user_type, picture_url FROM users WHERE id = ? LIMIT 1')) {
-            const userId = Number(boundParams[0] ?? 0)
-            const row = users.find((user) => user.id === userId)
-            return (row ?? null) as T | null
-          }
-
-          if (sql.startsWith('SELECT id, google_sub, email, name, user_type, picture_url FROM users WHERE google_sub = ? LIMIT 1')) {
-            const googleSub = String(boundParams[0] ?? '')
-            const row = users.find((user) => user.google_sub === googleSub)
-            return (row ?? null) as T | null
-          }
-
-          if (sql.startsWith('SELECT id, user_id, isbn, title, author, publisher, published_at, cover_url, created_at, updated_at FROM books WHERE id = ? AND user_id = ? LIMIT 1')) {
-            const bookId = Number(boundParams[0] ?? 0)
-            const userId = Number(boundParams[1] ?? 0)
-            const row = books.find((book) => book.id === bookId && book.user_id === userId)
-            return (row ?? null) as T | null
-          }
-
-          return null
-        },
-      }
-    },
-  } as unknown as D1Database
-}
 
 const createMockR2Bucket = (): R2Bucket => {
   return {
@@ -806,6 +534,29 @@ describe('reading log routes', () => {
     expect(res.status).toBe(302)
     expect(hasSessionClear).toBe(true)
     expect(hasOauthState).toBe(true)
+  })
+
+  it('POST /auth/logout clears session cookie when CSRF token is valid', async () => {
+    const csrf = await fetchCsrfContext()
+
+    const res = await app.request(
+      '/auth/logout',
+      {
+        method: 'POST',
+        headers: {
+          Cookie: `${csrf.sessionCookie}; ${csrf.csrfCookie}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({ csrf_token: csrf.token }),
+      },
+      { SESSION_SECRET: TEST_SESSION_SECRET }
+    )
+
+    const setCookie = res.headers.get('set-cookie') ?? ''
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('/')
+    expect(setCookie).toContain('session_token=')
+    expect(setCookie).toContain('Max-Age=0')
   })
 
   it('GET /books returns 401 when not authenticated', async () => {
