@@ -19,3 +19,13 @@ export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
 
   await next()
 }
+
+export const requireAdmin: MiddlewareHandler<AppEnv> = async (c, next) => {
+  const authUser = c.get('authUser')
+
+  if (!authUser || (authUser.userType !== 'admin' && !authUser.impersonator)) {
+    return c.html(<ResultMessage message="管理者権限が必要です。" tone="error" />, 403)
+  }
+
+  await next()
+}

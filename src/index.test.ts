@@ -16,11 +16,34 @@ type BookRow = {
   updated_at?: string | null
 }
 
+type UserRow = {
+  id: number
+  google_sub: string
+  email: string
+  name: string | null
+  user_type: 'user' | 'admin'
+  picture_url: string | null
+  created_at: string | null
+}
+
 type MockDbOptions = {
   initialBooks?: BookRow[]
+  initialUsers?: UserRow[]
   insertError?: Error
   forceCoverUpdateNoChange?: boolean
   simulateConcurrentCoverUploadOnNextEditUpdate?: string
+}
+
+type SessionUserOptions = {
+  id?: number
+  email?: string
+  name?: string
+  userType?: 'user' | 'admin'
+  impersonator?: {
+    id: number
+    email: string
+    name: string
+  }
 }
 
 type CsrfContext = {
@@ -33,7 +56,21 @@ const TEST_SESSION_SECRET = 'test-session-secret'
 
 const createMockDb = (options: MockDbOptions = {}): D1Database => {
   const books: BookRow[] = [...(options.initialBooks ?? [])]
+  const users: UserRow[] = [
+    ...(options.initialUsers ?? [
+      {
+        id: 1,
+        google_sub: 'google-sub-1',
+        email: 'tester@example.com',
+        name: 'Tester',
+        user_type: 'user',
+        picture_url: null,
+        created_at: '2026-04-13 09:00:00',
+      },
+    ]),
+  ]
   let nextId = books.length + 1
+  let nextUserId = users.length + 1
   let didSimulateConcurrentCoverUploadOnEditUpdate = false
 
   const filterBooks = (targetUserId: number, query: string): BookRow[] => {
@@ -72,6 +109,33 @@ const createMockDb = (options: MockDbOptions = {}): D1Database => {
           return this
         },
         async run() {
+          if (sql.startsWith('INSERT INTO users (google_sub, email, name, picture_url)')) {
+            const googleSub = String(boundParams[0] ?? '')
+            const email = String(boundParams[1] ?? '')
+            const name = boundParams[2] != null ? String(boundParams[2]) : null
+            const pictureUrl = boundParams[3] != null ? String(boundParams[3]) : null
+            const existing = users.find((user) => user.google_sub === googleSub)
+
+            if (existing) {
+              existing.email = email
+              existing.name = name
+              existing.picture_url = pictureUrl
+              return { success: true, meta: { changes: 1 } }
+            }
+
+            users.push({
+              id: nextUserId,
+              google_sub: googleSub,
+              email,
+              name,
+              user_type: 'user',
+              picture_url: pictureUrl,
+              created_at: '2026-04-13 10:00:00',
+            })
+            nextUserId += 1
+            return { success: true, meta: { changes: 1 } }
+          }
+
           if (sql.startsWith('UPDATE books SET cover_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?')) {
             if (options.forceCoverUpdateNoChange === true) {
               return { success: true, meta: { changes: 0 } }
@@ -167,6 +231,26 @@ const createMockDb = (options: MockDbOptions = {}): D1Database => {
           return { success: true, meta: { changes: 1 } }
         },
         async all<T>() {
+          if (sql.startsWith('SELECT\n        users.id,')) {
+            const sortedUsers = [...users].sort((a, b) => {
+              const timeA = new Date((a.created_at ?? '').replace(' ', 'T') + 'Z').getTime()
+              const timeB = new Date((b.created_at ?? '').replace(' ', 'T') + 'Z').getTime()
+              if (timeA !== timeB) {
+                return timeB - timeA
+              }
+
+              return b.id - a.id
+            })
+            const results = sortedUsers.map((user) => ({
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              user_type: user.user_type,
+              book_count: books.filter((book) => book.user_id === user.id).length,
+            }))
+            return { results: results as T[] }
+          }
+
           if (sql.startsWith('SELECT COUNT(*) AS total_count FROM books WHERE user_id = ?')) {
             const targetUserId = Number(boundParams[0] ?? 0)
             const query = String(boundParams[1] ?? '')
@@ -186,6 +270,18 @@ const createMockDb = (options: MockDbOptions = {}): D1Database => {
           return { results: [] as T[] }
         },
         async first<T>() {
+          if (sql.startsWith('SELECT id, google_sub, email, name, user_type, picture_url FROM users WHERE id = ? LIMIT 1')) {
+            const userId = Number(boundParams[0] ?? 0)
+            const row = users.find((user) => user.id === userId)
+            return (row ?? null) as T | null
+          }
+
+          if (sql.startsWith('SELECT id, google_sub, email, name, user_type, picture_url FROM users WHERE google_sub = ? LIMIT 1')) {
+            const googleSub = String(boundParams[0] ?? '')
+            const row = users.find((user) => user.google_sub === googleSub)
+            return (row ?? null) as T | null
+          }
+
           if (sql.startsWith('SELECT id, user_id, isbn, title, author, publisher, published_at, cover_url, created_at, updated_at FROM books WHERE id = ? AND user_id = ? LIMIT 1')) {
             const bookId = Number(boundParams[0] ?? 0)
             const userId = Number(boundParams[1] ?? 0)
@@ -207,11 +303,13 @@ const createMockR2Bucket = (): R2Bucket => {
   } as unknown as R2Bucket
 }
 
-const createSessionCookie = async (): Promise<string> => {
+const createSessionCookie = async (options: SessionUserOptions = {}): Promise<string> => {
   const token = await createSessionToken(TEST_SESSION_SECRET, {
-    id: 1,
-    email: 'tester@example.com',
-    name: 'Tester',
+    id: options.id ?? 1,
+    email: options.email ?? 'tester@example.com',
+    name: options.name ?? 'Tester',
+    userType: options.userType ?? 'user',
+    ...(options.impersonator ? { impersonator: options.impersonator } : {}),
   })
 
   return `session_token=${token}`
@@ -283,6 +381,188 @@ describe('reading log routes', () => {
     expect(body).not.toContain('name="csrf_token"')
     expect(body).toContain('Googleでログイン')
     expect(res.headers.get('set-cookie')).toContain('csrf_token=')
+  })
+
+  it('GET / shows admin dropdown when admin session', async () => {
+    const sessionCookie = await createSessionCookie({
+      userType: 'admin',
+      name: 'Admin User',
+      email: 'admin@example.com',
+    })
+
+    const res = await app.request(
+      '/',
+      {
+        headers: {
+          Cookie: sessionCookie,
+        },
+      },
+      { SESSION_SECRET: TEST_SESSION_SECRET }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(body).toContain('<summary')
+    expect(body).toContain('>管理<')
+    expect(body).toContain('href="/admin/users"')
+  })
+
+  it('GET /admin/users returns 403 for non-admin user', async () => {
+    const db = createMockDb()
+    const sessionCookie = await createSessionCookie()
+
+    const res = await app.request(
+      '/admin/users',
+      {
+        headers: {
+          Cookie: sessionCookie,
+        },
+      },
+      { DB: db, SESSION_SECRET: TEST_SESSION_SECRET }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(403)
+    expect(body).toContain('管理者権限が必要です。')
+  })
+
+  it('GET /admin/users lists users with book counts for admin', async () => {
+    const db = createMockDb({
+      initialUsers: [
+        {
+          id: 1,
+          google_sub: 'admin-sub',
+          email: 'admin@example.com',
+          name: 'Admin',
+          user_type: 'admin',
+          picture_url: null,
+          created_at: '2026-04-14 09:00:00',
+        },
+        {
+          id: 2,
+          google_sub: 'user-sub',
+          email: 'user@example.com',
+          name: 'Reader',
+          user_type: 'user',
+          picture_url: null,
+          created_at: '2026-04-13 09:00:00',
+        },
+      ],
+      initialBooks: [
+        {
+          id: 1,
+          user_id: 2,
+          isbn: '9784003101018',
+          title: 'User Book 1',
+          author: null,
+          publisher: null,
+          published_at: null,
+          cover_url: null,
+          created_at: '2026-04-13 10:00:00',
+        },
+        {
+          id: 2,
+          user_id: 2,
+          isbn: '9784101010014',
+          title: 'User Book 2',
+          author: null,
+          publisher: null,
+          published_at: null,
+          cover_url: null,
+          created_at: '2026-04-13 11:00:00',
+        },
+      ],
+    })
+    const sessionCookie = await createSessionCookie({
+      id: 1,
+      email: 'admin@example.com',
+      name: 'Admin',
+      userType: 'admin',
+    })
+
+    const res = await app.request(
+      '/admin/users',
+      {
+        headers: {
+          Cookie: sessionCookie,
+        },
+      },
+      { DB: db, SESSION_SECRET: TEST_SESSION_SECRET }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(body).toContain('ユーザ管理')
+    expect(body).toContain('Reader')
+    expect(body).toContain('>2<')
+    expect(body).toContain('impersonate')
+  })
+
+  it('POST /admin/impersonate switches session to target user for admin', async () => {
+    const db = createMockDb({
+      initialUsers: [
+        {
+          id: 1,
+          google_sub: 'admin-sub',
+          email: 'admin@example.com',
+          name: 'Admin',
+          user_type: 'admin',
+          picture_url: null,
+          created_at: '2026-04-14 09:00:00',
+        },
+        {
+          id: 2,
+          google_sub: 'user-sub',
+          email: 'user@example.com',
+          name: 'Reader',
+          user_type: 'user',
+          picture_url: null,
+          created_at: '2026-04-13 09:00:00',
+        },
+      ],
+    })
+    const csrf = await fetchCsrfContext()
+    const adminSessionCookie = await createSessionCookie({
+      id: 1,
+      email: 'admin@example.com',
+      name: 'Admin',
+      userType: 'admin',
+    })
+
+    const res = await app.request(
+      '/admin/impersonate',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Cookie: `${adminSessionCookie}; ${csrf.csrfCookie}`,
+        },
+        body: new URLSearchParams({ csrf_token: csrf.token, target_user_id: '2' }),
+      },
+      { DB: db, SESSION_SECRET: TEST_SESSION_SECRET }
+    )
+
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('/')
+
+    const setCookie = res.headers.get('set-cookie')
+    expect(setCookie).toContain('session_token=')
+
+    const switchedSession = setCookie?.split(';')[0]
+    const follow = await app.request(
+      '/',
+      {
+        headers: {
+          Cookie: switchedSession ?? '',
+        },
+      },
+      { DB: db, SESSION_SECRET: TEST_SESSION_SECRET }
+    )
+    const followBody = await follow.text()
+
+    expect(follow.status).toBe(200)
+    expect(followBody).toContain('Reader')
+    expect(followBody).toContain('impersonate 中')
   })
 
   it('GET /books returns 401 when not authenticated', async () => {

@@ -69,6 +69,20 @@ wrangler d1 execute reading-log-db --file=./migrations/0002_add_books_updated_at
 wrangler d1 execute reading-log-db --local --file=./migrations/0002_add_books_updated_at.sql
 ```
 
+## Migration (users.user_type 追加)
+
+管理機能を使う場合は、`users` テーブルに `user_type` を追加してください。
+
+```bash
+wrangler d1 execute reading-log-db --file=./migrations/0003_add_users_user_type.sql
+```
+
+ローカル DB の場合:
+
+```bash
+wrangler d1 execute reading-log-db --local --file=./migrations/0003_add_users_user_type.sql
+```
+
 ## Scripts
 
 ```bash

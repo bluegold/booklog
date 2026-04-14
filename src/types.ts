@@ -13,6 +13,12 @@ export type AuthUser = {
   id: number
   email: string
   name: string
+  userType: 'user' | 'admin'
+  impersonator?: {
+    id: number
+    email: string
+    name: string
+  }
   pictureUrl?: string | undefined
 }
 
