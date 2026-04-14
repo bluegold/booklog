@@ -2,68 +2,14 @@ import type { Hono } from 'hono'
 import { requireAuth } from '../middleware/auth.js'
 import { csrfValidation } from '../middleware/csrf.js'
 import { getCsrfTokenFromRequest } from '../security/csrf.js'
-import { addBookByIsbn, addBookManual, deleteBook, getBookForEdit, listBooks, updateBookFields, uploadBookCover } from '../services/books-service.js'
+import { addBookByIsbn, addBookManual, deleteBook, getBookForEdit, listBooks, updateBookFields } from '../services/books-service.js'
 import { BookListContent } from '../templates/partials/book-list.js'
 import { BookMetadataFields } from '../templates/partials/book-metadata-fields.js'
 import { ResultMessage } from '../templates/partials/result-message.js'
 import type { AppEnv } from '../types.js'
+import { type ListContext, pickListContext, renderBookList, renderBookListOob, renderErrorOobResponse } from './response-helpers.js'
 
-type ListContext = {
-  query: string
-  page: number
-}
-
-const pickListContext = (input: { query?: string | null | undefined; page?: string | null | undefined }): ListContext => {
-  const query = input.query?.trim() ?? ''
-  const page = Math.max(1, Number(input.page ?? '1') || 1)
-  return { query, page }
-}
-
-// 一覧描画に必要な props をサービス戻り値から組み立てる。
-const renderBookList = (
-  books: Awaited<ReturnType<typeof listBooks>>,
-  csrfToken: string,
-  options: {
-    highlightNewest?: boolean
-  } = {}
-) => {
-  return (
-    <BookListContent
-      books={books.books}
-      query={books.query}
-      page={books.page}
-      totalCount={books.totalCount}
-      totalPages={books.totalPages}
-      csrfToken={csrfToken}
-      {...(options.highlightNewest === true ? { highlightNewest: true } : {})}
-    />
-  )
-}
-
-// htmx の OOB swap で一覧領域だけ差し替える。
-const renderBookListOob = (
-  listing: Awaited<ReturnType<typeof listBooks>>,
-  csrfToken: string,
-  options: { highlightNewest?: boolean } = {}
-) => {
-  return (
-    <div id="book-list" hx-swap-oob="innerHTML">
-      {renderBookList(listing, csrfToken, options)}
-    </div>
-  )
-}
-
-// 登録失敗時はメッセージと最新一覧を返す。
-const renderErrorOobResponse = (message: string, listing: Awaited<ReturnType<typeof listBooks>>, csrfToken: string) => {
-  return (
-    <>
-      <ResultMessage message={message} tone="error" />
-      {renderBookListOob(listing, csrfToken)}
-    </>
-  )
-}
-
-// 登録成功時は入力欄をクリアし、新規行付き一覧を返す。
+// ISBN 登録成功時は入力欄をクリアし、新規行付き一覧を返す。
 const renderSuccessOobResponse = (message: string, listing: Awaited<ReturnType<typeof listBooks>>, csrfToken: string) => {
   return (
     <>
@@ -295,36 +241,7 @@ export const registerBookRoutes = (app: Hono<AppEnv>): void => {
     return c.html(renderSuccessOobResponse(result.message, listing, csrfToken))
   })
 
-  app.post('/books/:id/cover', requireAuth, csrfValidation, async (c) => {
-    const csrfToken = getCsrfTokenFromRequest(c.req.raw) ?? ''
-    const bookId = Number(c.req.param('id'))
-    const form = c.get('parsedForm')
-    const context = pickListContext({ query: form.get('q')?.toString() ?? '', page: form.get('page')?.toString() ?? '1' })
-
-    if (!Number.isFinite(bookId)) {
-      const listing = await listBooks(c.env.DB, c.get('authUser')!.id, context)
-      return c.html(renderErrorOobResponse('対象の本が見つかりませんでした。', listing, csrfToken))
-    }
-
-    const rawFile = form.get('cover_image')
-    const file = rawFile instanceof File ? rawFile : null
-    const result = await uploadBookCover(
-      c.env.DB,
-      c.env.BOOK_COVERS,
-      c.env.BOOK_COVERS_PUBLIC_BASE_URL,
-      c.get('authUser')!.id,
-      bookId,
-      file
-    )
-
-    const listing = await listBooks(c.env.DB, c.get('authUser')!.id, context)
-    if (result.status !== 'success') {
-      return c.html(renderErrorOobResponse(result.message, listing, csrfToken))
-    }
-
-    return c.html(renderSuccessOobResponse(result.message, listing, csrfToken))
-  })
-
+  // 書籍を削除し、結果メッセージと更新後一覧を OOB で返す。
   app.post('/books/:id/delete', requireAuth, csrfValidation, async (c) => {
     const csrfToken = getCsrfTokenFromRequest(c.req.raw) ?? ''
     const bookId = Number(c.req.param('id'))
@@ -346,3 +263,4 @@ export const registerBookRoutes = (app: Hono<AppEnv>): void => {
     return c.html(renderSuccessOobResponse(result.message, listing, csrfToken))
   })
 }
+

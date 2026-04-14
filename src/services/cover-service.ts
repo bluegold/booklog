@@ -1,0 +1,96 @@
+import { fetchBookByIdForUser, updateBookCoverUrlByIdForUser } from '../repositories/books-repository.js'
+
+const MAX_COVER_IMAGE_BYTES = 2 * 1024 * 1024
+const coverMimeToExt: Record<string, 'jpg' | 'png' | 'webp'> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+}
+
+export type UploadBookCoverResult =
+  | { status: 'validation-error'; message: string }
+  | { status: 'not-found'; message: string }
+  | { status: 'success'; message: string }
+
+export const uploadBookCover = async (
+  db: D1Database,
+  bucket: R2Bucket | undefined,
+  publicBaseUrl: string | undefined,
+  userId: number,
+  bookId: number,
+  file: File | null
+): Promise<UploadBookCoverResult> => {
+  if (!bucket) {
+    return {
+      status: 'validation-error',
+      message: '書影保存先の設定が不足しています。',
+    }
+  }
+
+  if (!publicBaseUrl?.trim()) {
+    return {
+      status: 'validation-error',
+      message: '書影公開URLの設定が不足しています。',
+    }
+  }
+
+  if (!file) {
+    return {
+      status: 'validation-error',
+      message: 'アップロードする画像ファイルを選択してください。',
+    }
+  }
+
+  const extension = coverMimeToExt[file.type]
+  if (!extension) {
+    return {
+      status: 'validation-error',
+      message: 'JPEG / PNG / WebP の画像のみアップロードできます。',
+    }
+  }
+
+  if (file.size <= 0) {
+    return {
+      status: 'validation-error',
+      message: '空のファイルはアップロードできません。',
+    }
+  }
+
+  if (file.size > MAX_COVER_IMAGE_BYTES) {
+    return {
+      status: 'validation-error',
+      message: '画像サイズは2MB以下にしてください。',
+    }
+  }
+
+  const book = await fetchBookByIdForUser(db, userId, bookId)
+  if (!book) {
+    return {
+      status: 'not-found',
+      message: '対象の本が見つかりませんでした。',
+    }
+  }
+
+  const objectKey = `users/${userId}/books/${bookId}/${Date.now()}-${crypto.randomUUID()}.${extension}`
+  await bucket.put(objectKey, await file.arrayBuffer(), {
+    httpMetadata: {
+      contentType: file.type,
+    },
+  })
+
+  const normalizedBaseUrl = publicBaseUrl.replace(/\/+$/, '')
+  const coverUrl = `${normalizedBaseUrl}/${objectKey}`
+  const updated = await updateBookCoverUrlByIdForUser(db, userId, bookId, coverUrl)
+
+  if (!updated) {
+    return {
+      status: 'not-found',
+      message: '対象の本が見つかりませんでした。',
+    }
+  }
+
+  return {
+    status: 'success',
+    message: '書影画像を更新しました',
+  }
+}
