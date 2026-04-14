@@ -6,7 +6,7 @@ import { ResultMessage } from '../templates/partials/result-message.js'
 export const csrfIssuance: MiddlewareHandler<AppEnv> = async (c, next) => {
   const token = createCsrfToken()
   const isSecure = new URL(c.req.url).protocol === 'https:'
-  c.header('Set-Cookie', buildCsrfSetCookie(token, isSecure))
+  c.header('Set-Cookie', buildCsrfSetCookie(token, isSecure), { append: true })
   c.set('csrfToken', token)
   await next()
 }

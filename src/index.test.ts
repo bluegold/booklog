@@ -666,6 +666,49 @@ describe('reading log routes', () => {
     expect(res.headers.get('set-cookie')).toContain('Max-Age=0')
   })
 
+  it('GET / keeps session-clear cookie when csrf cookie is also issued', async () => {
+    const db = createMockDb({
+      initialUsers: [
+        {
+          id: 1,
+          google_sub: 'demoted-admin-sub',
+          email: 'admin@example.com',
+          name: 'Demoted Admin',
+          user_type: 'user',
+          picture_url: null,
+          created_at: '2026-04-14 09:00:00',
+        },
+      ],
+    })
+    const impersonationSessionCookie = await createSessionCookie({
+      id: 2,
+      email: 'target@example.com',
+      name: 'Target User',
+      userType: 'user',
+      impersonator: {
+        id: 1,
+        email: 'admin@example.com',
+        name: 'Demoted Admin',
+      },
+    })
+
+    const res = await app.request(
+      '/',
+      {
+        headers: {
+          Cookie: impersonationSessionCookie,
+        },
+      },
+      { DB: db, SESSION_SECRET: TEST_SESSION_SECRET }
+    )
+
+    const setCookie = res.headers.get('set-cookie') ?? ''
+    expect(res.status).toBe(200)
+    expect(setCookie).toContain('session_token=')
+    expect(setCookie).toContain('Max-Age=0')
+    expect(setCookie).toContain('csrf_token=')
+  })
+
   it('GET /books returns 401 when not authenticated', async () => {
     const db = createMockDb()
     const res = await app.request('/books', undefined, { DB: db })

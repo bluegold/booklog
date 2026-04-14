@@ -16,7 +16,7 @@ export const sessionAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     const impersonator = await findUserById(c.env.DB, authUser.impersonator.id)
     if (!impersonator || impersonator.user_type !== 'admin') {
       authUser = null
-      c.header('Set-Cookie', buildSessionClearCookie(getIsSecureRequest(c.req.url)))
+      c.header('Set-Cookie', buildSessionClearCookie(getIsSecureRequest(c.req.url)), { append: true })
     }
   }
 
