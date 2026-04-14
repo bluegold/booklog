@@ -12,6 +12,8 @@ export const Layout = (props: LayoutProps) => {
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="stylesheet" href="/app.css" />
         <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+        <script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
+        <script src="/barcode-scan.js"></script>
       </head>
       <body class="min-h-screen bg-gradient-to-br from-amber-50 via-stone-100 to-emerald-50 text-stone-800 antialiased [scrollbar-gutter:stable] [font-family:'Noto_Sans_JP','Hiragino_Kaku_Gothic_ProN','Yu_Gothic',sans-serif]">
         <main class="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 sm:py-8 lg:py-10">
