@@ -94,13 +94,24 @@ export const updateBookByIdForUser = async (
   db: D1Database,
   userId: number,
   bookId: number,
+  expectedCoverUrl: string | null,
   fields: EditableBookFields
 ): Promise<boolean> => {
   const result = await db
     .prepare(
-      'UPDATE books SET title = ?, author = ?, publisher = ?, published_at = ?, cover_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?'
+      'UPDATE books SET title = ?, author = ?, publisher = ?, published_at = ?, cover_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ? AND ((cover_url IS NULL AND ? IS NULL) OR cover_url = ?)'
     )
-    .bind(fields.title ?? null, fields.author ?? null, fields.publisher ?? null, fields.published_at ?? null, fields.cover_url ?? null, bookId, userId)
+    .bind(
+      fields.title ?? null,
+      fields.author ?? null,
+      fields.publisher ?? null,
+      fields.published_at ?? null,
+      fields.cover_url ?? null,
+      bookId,
+      userId,
+      expectedCoverUrl,
+      expectedCoverUrl
+    )
     .run<{ changes?: number }>()
 
   return (result.meta?.changes ?? 0) > 0

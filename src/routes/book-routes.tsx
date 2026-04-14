@@ -241,7 +241,7 @@ export const registerBookRoutes = (app: Hono<AppEnv>): void => {
     })
 
     const listing = await listBooks(c.env.DB, c.get('authUser')!.id, context)
-    if (result.status === 'not-found') {
+    if (result.status !== 'success') {
       return c.html(renderErrorOobResponse(result.message, listing, csrfToken))
     }
 

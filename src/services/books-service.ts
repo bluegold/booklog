@@ -47,11 +47,12 @@ type SaveBookFieldsInput = {
   cover_url?: string | undefined
 }
 
-type UpdateBookResult = { status: 'not-found'; message: string } | { status: 'success'; message: string }
+type UpdateBookResult = { status: 'not-found'; message: string } | { status: 'conflict'; message: string } | { status: 'success'; message: string }
 type DeleteBookResult = { status: 'not-found'; message: string } | { status: 'success'; message: string }
 
 const duplicateIsbnMessages = ['UNIQUE constraint failed: books.isbn', 'UNIQUE constraint failed: books.user_id, books.isbn']
 const DEFAULT_PAGE_SIZE = 10
+const MAX_BOOK_EDIT_UPDATE_ATTEMPTS = 2
 const normalizeIsbn = (rawIsbn: string): string => rawIsbn.replace(/[\s-]/g, '')
 const isValidIsbn = (isbn: string): boolean => /^(?:\d{13}|\d{9}[\dXx])$/.test(isbn)
 const normalizeQuery = (rawQuery: string | undefined): string => rawQuery?.trim().toLowerCase() ?? ''
@@ -244,32 +245,37 @@ export const updateBookFields = async (
   rawFields: SaveBookFieldsInput,
   options: UpdateBookOptions = {}
 ): Promise<UpdateBookResult> => {
-  const existingBook = await fetchBookByIdForUser(db, userId, bookId)
-  if (!existingBook) {
-    return {
-      status: 'not-found',
-      message: '対象の本が見つかりませんでした。',
+  const requestedFields = normalizeBookFields(rawFields)
+
+  for (let attempt = 0; attempt < MAX_BOOK_EDIT_UPDATE_ATTEMPTS; attempt += 1) {
+    const existingBook = await fetchBookByIdForUser(db, userId, bookId)
+    if (!existingBook) {
+      return {
+        status: 'not-found',
+        message: '対象の本が見つかりませんでした。',
+      }
     }
-  }
 
-  const fields = normalizeBookFields(rawFields)
+    const fields = {
+      ...requestedFields,
+    }
 
-  if (isManagedCoverUrlForBook(existingBook.cover_url, options.managedCoverBaseUrl, userId, bookId)) {
-    fields.cover_url = existingBook.cover_url ?? undefined
-  }
+    if (isManagedCoverUrlForBook(existingBook.cover_url, options.managedCoverBaseUrl, userId, bookId)) {
+      fields.cover_url = existingBook.cover_url ?? undefined
+    }
 
-  const updated = await updateBookByIdForUser(db, userId, bookId, fields)
-
-  if (!updated) {
-    return {
-      status: 'not-found',
-      message: '対象の本が見つかりませんでした。',
+    const updated = await updateBookByIdForUser(db, userId, bookId, existingBook.cover_url, fields)
+    if (updated) {
+      return {
+        status: 'success',
+        message: '更新しました',
+      }
     }
   }
 
   return {
-    status: 'success',
-    message: '更新しました',
+    status: 'conflict',
+    message: '更新中に競合が発生しました。もう一度お試しください。',
   }
 }
 

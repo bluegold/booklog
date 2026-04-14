@@ -20,6 +20,7 @@ type MockDbOptions = {
   initialBooks?: BookRow[]
   insertError?: Error
   forceCoverUpdateNoChange?: boolean
+  simulateConcurrentCoverUploadOnNextEditUpdate?: string
 }
 
 type CsrfContext = {
@@ -33,6 +34,7 @@ const TEST_SESSION_SECRET = 'test-session-secret'
 const createMockDb = (options: MockDbOptions = {}): D1Database => {
   const books: BookRow[] = [...(options.initialBooks ?? [])]
   let nextId = books.length + 1
+  let didSimulateConcurrentCoverUploadOnEditUpdate = false
 
   const filterBooks = (targetUserId: number, query: string): BookRow[] => {
     const normalizedQuery = query.trim().toLowerCase()
@@ -77,8 +79,14 @@ const createMockDb = (options: MockDbOptions = {}): D1Database => {
 
             const bookId = Number(boundParams[1] ?? 0)
             const userId = Number(boundParams[2] ?? 0)
+            const expectedCoverUrl = boundParams[3] != null ? String(boundParams[3]) : null
             const target = books.find((book) => book.id === bookId && book.user_id === userId)
             if (!target) {
+              return { success: true, meta: { changes: 0 } }
+            }
+
+            const currentCoverUrl = target.cover_url ?? null
+            if (currentCoverUrl !== expectedCoverUrl) {
               return { success: true, meta: { changes: 0 } }
             }
 
@@ -90,8 +98,19 @@ const createMockDb = (options: MockDbOptions = {}): D1Database => {
           if (sql.startsWith('UPDATE books SET')) {
             const bookId = Number(boundParams[5] ?? 0)
             const userId = Number(boundParams[6] ?? 0)
+            const expectedCoverUrl = boundParams[7] != null ? String(boundParams[7]) : null
             const target = books.find((book) => book.id === bookId && book.user_id === userId)
             if (!target) {
+              return { success: true, meta: { changes: 0 } }
+            }
+
+            if (options.simulateConcurrentCoverUploadOnNextEditUpdate && !didSimulateConcurrentCoverUploadOnEditUpdate) {
+              target.cover_url = options.simulateConcurrentCoverUploadOnNextEditUpdate
+              didSimulateConcurrentCoverUploadOnEditUpdate = true
+            }
+
+            const currentCoverUrl = target.cover_url ?? null
+            if (currentCoverUrl !== expectedCoverUrl) {
               return { success: true, meta: { changes: 0 } }
             }
 
@@ -683,6 +702,58 @@ describe('reading log routes', () => {
     expect(body).toContain('更新しました')
     expect(body).toContain('https://pub.example.r2.dev/users/1/books/10/current.jpg')
     expect(body).not.toContain('https://pub.example.r2.dev/users/1/books/999/attack.jpg')
+  })
+
+  it('POST /books/:id/edit preserves concurrently uploaded managed cover_url', async () => {
+    const db = createMockDb({
+      simulateConcurrentCoverUploadOnNextEditUpdate: 'https://pub.example.r2.dev/users/1/books/10/newly-uploaded.jpg',
+      initialBooks: [
+        {
+          id: 10,
+          user_id: 1,
+          isbn: '9784003101018',
+          title: '編集前タイトル',
+          author: '著者',
+          publisher: '出版社',
+          published_at: '2000',
+          cover_url: null,
+          created_at: '2026-04-13 09:00:00',
+        },
+      ],
+    })
+    const csrf = await fetchCsrfContext()
+
+    const res = await app.request(
+      '/books/10/edit',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Cookie: `${csrf.sessionCookie}; ${csrf.csrfCookie}`,
+        },
+        body: new URLSearchParams({
+          csrf_token: csrf.token,
+          q: '',
+          page: '1',
+          title: '編集後タイトル',
+          author: '編集後著者',
+          publisher: '編集後出版社',
+          published_at: '2020-01',
+          cover_url: 'https://example.com/attack.jpg',
+        }),
+      },
+      {
+        DB: db,
+        SESSION_SECRET: TEST_SESSION_SECRET,
+        BOOK_COVERS_PUBLIC_BASE_URL: 'https://pub.example.r2.dev',
+      }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(body).toContain('更新しました')
+    expect(body).toContain('https://pub.example.r2.dev/users/1/books/10/newly-uploaded.jpg')
+    expect(body).not.toContain('https://example.com/attack.jpg')
   })
 
   it('POST /books/:id/cover uploads image and returns success', async () => {
