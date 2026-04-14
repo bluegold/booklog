@@ -628,6 +628,57 @@ describe('reading log routes', () => {
     expect(body).toContain('編集後タイトル')
   })
 
+  it('POST /books/:id/edit ignores cover_url changes when app-managed cover exists', async () => {
+    const db = createMockDb({
+      initialBooks: [
+        {
+          id: 10,
+          user_id: 1,
+          isbn: '9784003101018',
+          title: '編集前タイトル',
+          author: '著者',
+          publisher: '出版社',
+          published_at: '2000',
+          cover_url: 'https://pub.example.r2.dev/users/1/books/10/current.jpg',
+          created_at: '2026-04-13 09:00:00',
+        },
+      ],
+    })
+    const csrf = await fetchCsrfContext()
+
+    const res = await app.request(
+      '/books/10/edit',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Cookie: `${csrf.sessionCookie}; ${csrf.csrfCookie}`,
+        },
+        body: new URLSearchParams({
+          csrf_token: csrf.token,
+          q: '',
+          page: '1',
+          title: '編集後タイトル',
+          author: '編集後著者',
+          publisher: '編集後出版社',
+          published_at: '2020-01',
+          cover_url: 'https://pub.example.r2.dev/users/1/books/999/attack.jpg',
+        }),
+      },
+      {
+        DB: db,
+        SESSION_SECRET: TEST_SESSION_SECRET,
+        BOOK_COVERS_PUBLIC_BASE_URL: 'https://pub.example.r2.dev',
+      }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(body).toContain('更新しました')
+    expect(body).toContain('https://pub.example.r2.dev/users/1/books/10/current.jpg')
+    expect(body).not.toContain('https://pub.example.r2.dev/users/1/books/999/attack.jpg')
+  })
+
   it('POST /books/:id/cover uploads image and returns success', async () => {
     const db = createMockDb({
       initialBooks: [
@@ -706,6 +757,52 @@ describe('reading log routes', () => {
           'Content-Length': String(2 * 1024 * 1024 + 128 * 1024 + 1),
         },
         body: '------x--',
+      },
+      {
+        DB: db,
+        SESSION_SECRET: TEST_SESSION_SECRET,
+        BOOK_COVERS: bucket,
+        BOOK_COVERS_PUBLIC_BASE_URL: 'https://pub.example.r2.dev',
+      }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(413)
+    expect(body).toContain('アップロードサイズが大きすぎます（2MB以下）。')
+    expect(bucket.put).not.toHaveBeenCalled()
+  })
+
+  it('POST /books/:id/cover rejects oversized payload when Content-Length is malformed', async () => {
+    const db = createMockDb({
+      initialBooks: [
+        {
+          id: 10,
+          user_id: 1,
+          isbn: '9784003101018',
+          title: 'カバー更新前',
+          author: '著者',
+          publisher: '出版社',
+          published_at: '2000',
+          cover_url: null,
+          created_at: '2026-04-13 09:00:00',
+        },
+      ],
+    })
+    const bucket = createMockR2Bucket()
+    const csrf = await fetchCsrfContext()
+
+    const oversizedBody = 'x'.repeat(2 * 1024 * 1024 + 128 * 1024 + 1)
+
+    const res = await app.request(
+      '/books/10/cover',
+      {
+        method: 'POST',
+        headers: {
+          Cookie: `${csrf.sessionCookie}; ${csrf.csrfCookie}`,
+          'Content-Type': 'multipart/form-data; boundary=----x',
+          'Content-Length': 'invalid-length',
+        },
+        body: oversizedBody,
       },
       {
         DB: db,

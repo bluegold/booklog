@@ -11,12 +11,21 @@ import { pickListContext, renderBookListOob, renderErrorOobResponse } from './re
 const MAX_COVER_UPLOAD_REQUEST_BYTES = 2 * 1024 * 1024 + 128 * 1024
 
 const enforceCoverUploadRequestSize: MiddlewareHandler<AppEnv> = async (c, next) => {
+  const rejectTooLarge = () => {
+    c.status(413)
+    return c.html(<ResultMessage message="アップロードサイズが大きすぎます（2MB以下）。" tone="error" />)
+  }
+
   const contentLengthHeader = c.req.header('content-length')
   const contentLength = Number(contentLengthHeader ?? '')
 
-  if (Number.isFinite(contentLength) && contentLength > MAX_COVER_UPLOAD_REQUEST_BYTES) {
-    c.status(413)
-    return c.html(<ResultMessage message="アップロードサイズが大きすぎます（2MB以下）。" tone="error" />)
+  if (!Number.isFinite(contentLength)) {
+    // Content-Length が不正または未指定の場合は multipart 解析前に拒否する。
+    return rejectTooLarge()
+  }
+
+  if (contentLength > MAX_COVER_UPLOAD_REQUEST_BYTES) {
+    return rejectTooLarge()
   }
 
   await next()

@@ -8,6 +8,7 @@ import {
   updateBookByIdForUser,
 } from '../repositories/books-repository.js'
 import { fetchBookMetadataFromOpenBd } from '../external/openbd.js'
+import { isManagedCoverUrlForBook } from './cover-url-utils.js'
 
 type AddBookOptions = {
   debug?: boolean
@@ -17,6 +18,10 @@ type ListBooksOptions = {
   query?: string | undefined
   page?: number | undefined
   pageSize?: number | undefined
+}
+
+type UpdateBookOptions = {
+  managedCoverBaseUrl?: string | undefined
 }
 
 export type ListBooksResult = {
@@ -236,9 +241,23 @@ export const updateBookFields = async (
   db: D1Database,
   userId: number,
   bookId: number,
-  rawFields: SaveBookFieldsInput
+  rawFields: SaveBookFieldsInput,
+  options: UpdateBookOptions = {}
 ): Promise<UpdateBookResult> => {
+  const existingBook = await fetchBookByIdForUser(db, userId, bookId)
+  if (!existingBook) {
+    return {
+      status: 'not-found',
+      message: '対象の本が見つかりませんでした。',
+    }
+  }
+
   const fields = normalizeBookFields(rawFields)
+
+  if (isManagedCoverUrlForBook(existingBook.cover_url, options.managedCoverBaseUrl, userId, bookId)) {
+    fields.cover_url = existingBook.cover_url ?? undefined
+  }
+
   const updated = await updateBookByIdForUser(db, userId, bookId, fields)
 
   if (!updated) {

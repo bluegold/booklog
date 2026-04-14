@@ -3,6 +3,7 @@ import { requireAuth } from '../middleware/auth.js'
 import { csrfValidation } from '../middleware/csrf.js'
 import { getCsrfTokenFromRequest } from '../security/csrf.js'
 import { addBookByIsbn, addBookManual, deleteBook, getBookForEdit, listBooks, updateBookFields } from '../services/books-service.js'
+import { isManagedCoverUrlForBook } from '../services/cover-url-utils.js'
 import { BookListContent } from '../templates/partials/book-list.js'
 import { BookMetadataFields } from '../templates/partials/book-metadata-fields.js'
 import { ResultMessage } from '../templates/partials/result-message.js'
@@ -66,7 +67,8 @@ const renderManualEntryForm = (csrfToken: string, isbn: string) => {
 const renderInlineEditForm = (
   csrfToken: string,
   book: NonNullable<Awaited<ReturnType<typeof getBookForEdit>>>,
-  context: ListContext
+  context: ListContext,
+  coverUrlReadonly: boolean
 ) => {
   return (
     <div class="inline-form-enter space-y-3 rounded-lg border border-stone-200 bg-stone-50 p-3">
@@ -121,6 +123,7 @@ const renderInlineEditForm = (
           publisher={book.publisher}
           publishedAt={book.published_at}
           coverUrl={book.cover_url}
+          coverUrlReadonly={coverUrlReadonly}
         />
         <div class="mt-3 flex items-center justify-end gap-2">
           <button
@@ -166,7 +169,9 @@ export const registerBookRoutes = (app: Hono<AppEnv>): void => {
     }
 
     const csrfToken = getCsrfTokenFromRequest(c.req.raw) ?? ''
-    return c.html(renderInlineEditForm(csrfToken, book, context))
+    const authUserId = c.get('authUser')!.id
+    const coverUrlReadonly = isManagedCoverUrlForBook(book.cover_url, c.env.BOOK_COVERS_PUBLIC_BASE_URL, authUserId, book.id)
+    return c.html(renderInlineEditForm(csrfToken, book, context, coverUrlReadonly))
   })
 
   // ISBN を登録し、結果メッセージと更新後一覧を OOB で返す。
@@ -231,6 +236,8 @@ export const registerBookRoutes = (app: Hono<AppEnv>): void => {
       publisher: form.get('publisher')?.toString(),
       published_at: form.get('published_at')?.toString(),
       cover_url: form.get('cover_url')?.toString(),
+    }, {
+      managedCoverBaseUrl: c.env.BOOK_COVERS_PUBLIC_BASE_URL,
     })
 
     const listing = await listBooks(c.env.DB, c.get('authUser')!.id, context)

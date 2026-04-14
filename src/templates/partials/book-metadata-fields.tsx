@@ -4,6 +4,7 @@ type BookMetadataFieldsProps = {
   publisher?: string | null
   publishedAt?: string | null
   coverUrl?: string | null
+  coverUrlReadonly?: boolean
 }
 
 export const BookMetadataFields = (props: BookMetadataFieldsProps) => {
@@ -53,8 +54,10 @@ export const BookMetadataFields = (props: BookMetadataFieldsProps) => {
           name="cover_url"
           value={props.coverUrl ?? ''}
           placeholder="https://..."
+          readonly={props.coverUrlReadonly === true}
           class="mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
         />
+        {props.coverUrlReadonly === true ? <span class="mt-1 block text-[11px] text-stone-500">書影アップロード済みのため、このURLは編集できません。</span> : null}
       </label>
     </div>
   )

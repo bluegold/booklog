@@ -1,26 +1,11 @@
 import { fetchBookByIdForUser, updateBookCoverUrlByIdForUser } from '../repositories/books-repository.js'
+import { getManagedCoverObjectKeyForBook } from './cover-url-utils.js'
 
 const MAX_COVER_IMAGE_BYTES = 2 * 1024 * 1024
 const coverMimeToExt: Record<string, 'jpg' | 'png' | 'webp'> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
   'image/webp': 'webp',
-}
-
-const normalizePublicBaseUrl = (url: string): string => url.replace(/\/+$/, '')
-
-const extractManagedObjectKey = (coverUrl: string | null, normalizedBaseUrl: string): string | null => {
-  if (!coverUrl) {
-    return null
-  }
-
-  const prefix = `${normalizedBaseUrl}/`
-  if (!coverUrl.startsWith(prefix)) {
-    return null
-  }
-
-  const key = coverUrl.slice(prefix.length)
-  return key.length > 0 ? key : null
 }
 
 export type UploadBookCoverResult =
@@ -87,8 +72,8 @@ export const uploadBookCover = async (
     }
   }
 
-  const normalizedBaseUrl = normalizePublicBaseUrl(publicBaseUrl)
-  const previousManagedObjectKey = extractManagedObjectKey(book.cover_url, normalizedBaseUrl)
+  const normalizedBaseUrl = publicBaseUrl.replace(/\/+$/, '')
+  const previousManagedObjectKey = getManagedCoverObjectKeyForBook(book.cover_url, publicBaseUrl, userId, bookId)
 
   const objectKey = `users/${userId}/books/${bookId}/${Date.now()}-${crypto.randomUUID()}.${extension}`
   await bucket.put(objectKey, await file.arrayBuffer(), {
