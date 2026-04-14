@@ -13,7 +13,7 @@ export const HomePage = (props: HomePageProps) => {
   return (
     <Layout>
       <div class="space-y-6">
-        <div class="flex items-center justify-between rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm">
+        <div class="flex flex-col gap-3 border-x-0 border-y border-stone-200 bg-stone-50 px-4 py-3 text-sm -mx-5 sm:mx-0 sm:flex-row sm:items-center sm:justify-between sm:rounded-xl sm:border">
           {props.authUser ? (
             <div class="flex items-center gap-3">
               {props.authUser.pictureUrl ? (
@@ -36,7 +36,7 @@ export const HomePage = (props: HomePageProps) => {
           )}
 
           {props.authUser ? (
-            <div class="flex items-center gap-2">
+            <div class="flex items-start gap-2 self-end sm:self-auto">
               {isAdminSession ? (
                 <details class="relative">
                   <summary class="list-none cursor-pointer rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-100">
@@ -65,7 +65,7 @@ export const HomePage = (props: HomePageProps) => {
               </form>
             </div>
           ) : (
-            <a href="/auth/google/start" class="rounded-lg bg-stone-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-stone-700">
+            <a href="/auth/google/start" class="self-end rounded-lg bg-stone-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-stone-700">
               Googleでログイン
             </a>
           )}
