@@ -8,13 +8,23 @@ import { BookListContent } from '../templates/partials/book-list.js'
 import { BookMetadataFields } from '../templates/partials/book-metadata-fields.js'
 import { ResultMessage } from '../templates/partials/result-message.js'
 import type { AppEnv } from '../types.js'
-import { type ListContext, pickListContext, renderBookList, renderBookListOob, renderErrorOobResponse } from './response-helpers.js'
+import {
+  type ListContext,
+  pickListContext,
+  renderBookList,
+  renderBookListOob,
+  renderBookListOobResponse,
+} from './response-helpers.js'
 
 // ISBN 登録成功時は入力欄をクリアし、新規行付き一覧を返す。
 const renderSuccessOobResponse = (message: string, listing: Awaited<ReturnType<typeof listBooks>>, csrfToken: string) => {
-  return (
-    <>
-      <ResultMessage message={message} tone="success" />
+  return renderBookListOobResponse({
+    tone: 'success',
+    message,
+    listing,
+    csrfToken,
+    listOptions: { highlightNewest: true },
+    extra: (
       <input
         id="isbn-input"
         name="isbn"
@@ -22,9 +32,8 @@ const renderSuccessOobResponse = (message: string, listing: Awaited<ReturnType<t
         class="w-full rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-base outline-none transition focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100"
         hx-swap-oob="outerHTML"
       />
-      {renderBookListOob(listing, csrfToken, { highlightNewest: true })}
-    </>
-  )
+    ),
+  })
 }
 
 const renderManualEntryForm = (csrfToken: string, isbn: string) => {
@@ -183,7 +192,14 @@ export const registerBookRoutes = (app: Hono<AppEnv>): void => {
 
     if (result.status === 'validation-error' || result.status === 'duplicate') {
       const listing = await listBooks(c.env.DB, c.get('authUser')!.id)
-      return c.html(renderErrorOobResponse(result.message, listing, csrfToken))
+      return c.html(
+        renderBookListOobResponse({
+          tone: 'error',
+          message: result.message,
+          listing,
+          csrfToken,
+        })
+      )
     }
 
     if (result.status === 'not-found') {
@@ -212,7 +228,14 @@ export const registerBookRoutes = (app: Hono<AppEnv>): void => {
 
     if (result.status === 'validation-error' || result.status === 'duplicate') {
       const listing = await listBooks(c.env.DB, c.get('authUser')!.id)
-      return c.html(renderErrorOobResponse(result.message, listing, csrfToken))
+      return c.html(
+        renderBookListOobResponse({
+          tone: 'error',
+          message: result.message,
+          listing,
+          csrfToken,
+        })
+      )
     }
 
     const listing = await listBooks(c.env.DB, c.get('authUser')!.id)
@@ -227,7 +250,14 @@ export const registerBookRoutes = (app: Hono<AppEnv>): void => {
 
     if (!Number.isFinite(bookId)) {
       const listing = await listBooks(c.env.DB, c.get('authUser')!.id, context)
-      return c.html(renderErrorOobResponse('対象の本が見つかりませんでした。', listing, csrfToken))
+      return c.html(
+        renderBookListOobResponse({
+          tone: 'error',
+          message: '対象の本が見つかりませんでした。',
+          listing,
+          csrfToken,
+        })
+      )
     }
 
     const result = await updateBookFields(c.env.DB, c.get('authUser')!.id, bookId, {
@@ -242,7 +272,14 @@ export const registerBookRoutes = (app: Hono<AppEnv>): void => {
 
     const listing = await listBooks(c.env.DB, c.get('authUser')!.id, context)
     if (result.status !== 'success') {
-      return c.html(renderErrorOobResponse(result.message, listing, csrfToken))
+      return c.html(
+        renderBookListOobResponse({
+          tone: 'error',
+          message: result.message,
+          listing,
+          csrfToken,
+        })
+      )
     }
 
     return c.html(renderSuccessOobResponse(result.message, listing, csrfToken))
@@ -257,7 +294,14 @@ export const registerBookRoutes = (app: Hono<AppEnv>): void => {
 
     if (!Number.isFinite(bookId)) {
       const listing = await listBooks(c.env.DB, c.get('authUser')!.id, context)
-      return c.html(renderErrorOobResponse('対象の本が見つかりませんでした。', listing, csrfToken))
+      return c.html(
+        renderBookListOobResponse({
+          tone: 'error',
+          message: '対象の本が見つかりませんでした。',
+          listing,
+          csrfToken,
+        })
+      )
     }
 
     const result = await deleteBookWithManagedCoverCleanup(
@@ -270,10 +314,16 @@ export const registerBookRoutes = (app: Hono<AppEnv>): void => {
     const listing = await listBooks(c.env.DB, c.get('authUser')!.id, context)
 
     if (result.status === 'not-found') {
-      return c.html(renderErrorOobResponse(result.message, listing, csrfToken))
+      return c.html(
+        renderBookListOobResponse({
+          tone: 'error',
+          message: result.message,
+          listing,
+          csrfToken,
+        })
+      )
     }
 
     return c.html(renderSuccessOobResponse(result.message, listing, csrfToken))
   })
 }
-

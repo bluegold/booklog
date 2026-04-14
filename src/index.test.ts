@@ -808,6 +808,29 @@ describe('reading log routes', () => {
     expect(hasOauthState).toBe(true)
   })
 
+  it('POST /auth/logout clears session cookie when CSRF token is valid', async () => {
+    const csrf = await fetchCsrfContext()
+
+    const res = await app.request(
+      '/auth/logout',
+      {
+        method: 'POST',
+        headers: {
+          Cookie: `${csrf.sessionCookie}; ${csrf.csrfCookie}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({ csrf_token: csrf.token }),
+      },
+      { SESSION_SECRET: TEST_SESSION_SECRET }
+    )
+
+    const setCookie = res.headers.get('set-cookie') ?? ''
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('/')
+    expect(setCookie).toContain('session_token=')
+    expect(setCookie).toContain('Max-Age=0')
+  })
+
   it('GET /books returns 401 when not authenticated', async () => {
     const db = createMockDb()
     const res = await app.request('/books', undefined, { DB: db })

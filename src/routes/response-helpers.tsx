@@ -7,6 +7,15 @@ export type ListContext = {
   page: number
 }
 
+type BookListOobResponseOptions = {
+  tone: 'success' | 'error'
+  message: string
+  listing: ListBooksResult
+  csrfToken: string
+  listOptions?: { highlightNewest?: boolean }
+  extra?: unknown
+}
+
 export const pickListContext = (input: { query?: string | null | undefined; page?: string | null | undefined }): ListContext => {
   const query = input.query?.trim() ?? ''
   const page = Math.max(1, Number(input.page ?? '1') || 1)
@@ -47,10 +56,20 @@ export const renderBookListOob = (
 
 // 処理失敗時はエラーメッセージと最新の一覧を返す。
 export const renderErrorOobResponse = (message: string, listing: ListBooksResult, csrfToken: string) => {
+  return renderBookListOobResponse({
+    tone: 'error',
+    message,
+    listing,
+    csrfToken,
+  })
+}
+
+export const renderBookListOobResponse = (options: BookListOobResponseOptions) => {
   return (
     <>
-      <ResultMessage message={message} tone="error" />
-      {renderBookListOob(listing, csrfToken)}
+      <ResultMessage message={options.message} tone={options.tone} />
+      {options.extra}
+      {renderBookListOob(options.listing, options.csrfToken, options.listOptions)}
     </>
   )
 }

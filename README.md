@@ -22,7 +22,7 @@ ISBN を入力して本を登録し、一覧を表示する小さな読書ログ
 
 - `wrangler` と `tsc` はグローバルコマンドとして使える前提です。
 - `npx wrangler ...` / `npx tsc ...` でも実行できます。
-- `DEBUG_OPENBD=1` を設定すると openBD 取得と保存直前ペイロードのデバッグログを出力します。
+- `DEBUG=1` を設定すると openBD 取得と OAuth 周辺のデバッグログを出力します。
 
 ## Getting Started
 
@@ -122,14 +122,28 @@ schema.sql                     # D1 schema
 ## Current Schema
 
 ```sql
+CREATE TABLE users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  google_sub TEXT UNIQUE NOT NULL,
+  email TEXT NOT NULL,
+  user_type TEXT NOT NULL DEFAULT 'user' CHECK (user_type IN ('user', 'admin')),
+  name TEXT,
+  picture_url TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE books (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  isbn TEXT UNIQUE,
+  user_id INTEGER NOT NULL,
+  isbn TEXT NOT NULL,
   title TEXT,
   author TEXT,
   publisher TEXT,
   published_at TEXT,
   cover_url TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(user_id) REFERENCES users(id),
+  UNIQUE(user_id, isbn)
 );
 ```
