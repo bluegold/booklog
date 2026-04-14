@@ -27,8 +27,36 @@ const resolveAdminActor = (authUser: AuthUser): AuthUser['impersonator'] => {
   }
 }
 
+const resolveVerifiedAdmin = async (
+  db: D1Database,
+  authUser: AuthUser
+): Promise<{
+  adminActor: NonNullable<AuthUser['impersonator']>
+  adminUser: NonNullable<Awaited<ReturnType<typeof findUserById>>>
+} | null> => {
+  const adminActor = resolveAdminActor(authUser)
+  if (!adminActor) {
+    return null
+  }
+
+  const adminUser = await findUserById(db, adminActor.id)
+  if (!adminUser || adminUser.user_type !== 'admin') {
+    return null
+  }
+
+  return {
+    adminActor,
+    adminUser,
+  }
+}
+
 export const registerAdminRoutes = (app: Hono<AppEnv>): void => {
   app.get('/admin/users', requireAuth, requireAdmin, csrfIssuance, async (c) => {
+    const verifiedAdmin = await resolveVerifiedAdmin(c.env.DB, c.get('authUser')!)
+    if (!verifiedAdmin) {
+      return c.html(<ResultMessage message="管理者権限が確認できませんでした。" tone="error" />, 403)
+    }
+
     const csrfToken = c.get('csrfToken')
     const users = await listUsersWithBookCounts(c.env.DB)
     return c.html(<UserPage csrfToken={csrfToken} users={users} authUser={c.get('authUser')!} />)
@@ -40,17 +68,11 @@ export const registerAdminRoutes = (app: Hono<AppEnv>): void => {
       return c.html(<ResultMessage message="SESSION_SECRET が未設定です。" tone="error" />, 500)
     }
 
-    const authUser = c.get('authUser')!
-    const adminActor = resolveAdminActor(authUser)
-
-    if (!adminActor) {
-      return c.html(<ResultMessage message="管理者情報の解決に失敗しました。" tone="error" />, 403)
-    }
-
-    const adminUser = await findUserById(c.env.DB, adminActor.id)
-    if (!adminUser || adminUser.user_type !== 'admin') {
+    const verifiedAdmin = await resolveVerifiedAdmin(c.env.DB, c.get('authUser')!)
+    if (!verifiedAdmin) {
       return c.html(<ResultMessage message="管理者権限が確認できませんでした。" tone="error" />, 403)
     }
+    const { adminActor } = verifiedAdmin
 
     const form = c.get('parsedForm')
     const targetUserId = Number(form.get('target_user_id')?.toString() ?? '')
@@ -83,17 +105,11 @@ export const registerAdminRoutes = (app: Hono<AppEnv>): void => {
       return c.html(<ResultMessage message="SESSION_SECRET が未設定です。" tone="error" />, 500)
     }
 
-    const authUser = c.get('authUser')!
-    const adminActor = resolveAdminActor(authUser)
-
-    if (!adminActor) {
-      return c.html(<ResultMessage message="管理者情報の解決に失敗しました。" tone="error" />, 403)
-    }
-
-    const adminUser = await findUserById(c.env.DB, adminActor.id)
-    if (!adminUser || adminUser.user_type !== 'admin') {
+    const verifiedAdmin = await resolveVerifiedAdmin(c.env.DB, c.get('authUser')!)
+    if (!verifiedAdmin) {
       return c.html(<ResultMessage message="管理者権限が確認できませんでした。" tone="error" />, 403)
     }
+    const { adminUser } = verifiedAdmin
 
     const token = await createSessionToken(sessionSecret, {
       id: adminUser.id,

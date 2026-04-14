@@ -426,6 +426,42 @@ describe('reading log routes', () => {
     expect(body).toContain('管理者権限が必要です。')
   })
 
+  it('GET /admin/users returns 403 when session says admin but DB role is revoked', async () => {
+    const db = createMockDb({
+      initialUsers: [
+        {
+          id: 1,
+          google_sub: 'demoted-admin-sub',
+          email: 'admin@example.com',
+          name: 'Demoted Admin',
+          user_type: 'user',
+          picture_url: null,
+          created_at: '2026-04-14 09:00:00',
+        },
+      ],
+    })
+    const sessionCookie = await createSessionCookie({
+      id: 1,
+      email: 'admin@example.com',
+      name: 'Demoted Admin',
+      userType: 'admin',
+    })
+
+    const res = await app.request(
+      '/admin/users',
+      {
+        headers: {
+          Cookie: sessionCookie,
+        },
+      },
+      { DB: db, SESSION_SECRET: TEST_SESSION_SECRET }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(403)
+    expect(body).toContain('管理者権限が確認できませんでした。')
+  })
+
   it('GET /admin/users lists users with book counts for admin', async () => {
     const db = createMockDb({
       initialUsers: [
