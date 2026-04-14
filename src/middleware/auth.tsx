@@ -12,11 +12,22 @@ export const sessionAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   const secret = c.env?.SESSION_SECRET ?? ''
   let authUser = secret ? await parseSessionFromRequest(c.req.raw, secret) : null
 
-  if (authUser?.impersonator) {
-    const impersonator = await findUserById(c.env.DB, authUser.impersonator.id)
-    if (!impersonator || impersonator.user_type !== 'admin') {
-      authUser = null
-      c.header('Set-Cookie', buildSessionClearCookie(getIsSecureRequest(c.req.url)), { append: true })
+  if (authUser && c.env.DB) {
+    const adminActorId = authUser.impersonator?.id ?? (authUser.userType === 'admin' ? authUser.id : null)
+
+    if (adminActorId !== null) {
+      const adminActor = await findUserById(c.env.DB, adminActorId)
+      if (!adminActor || adminActor.user_type !== 'admin') {
+        if (authUser.impersonator) {
+          authUser = null
+          c.header('Set-Cookie', buildSessionClearCookie(getIsSecureRequest(c.req.url)), { append: true })
+        } else {
+          authUser = {
+            ...authUser,
+            userType: 'user',
+          }
+        }
+      }
     }
   }
 

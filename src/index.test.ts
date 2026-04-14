@@ -384,6 +384,19 @@ describe('reading log routes', () => {
   })
 
   it('GET / shows admin dropdown when admin session', async () => {
+    const db = createMockDb({
+      initialUsers: [
+        {
+          id: 1,
+          google_sub: 'admin-sub',
+          email: 'admin@example.com',
+          name: 'Admin User',
+          user_type: 'admin',
+          picture_url: null,
+          created_at: '2026-04-14 09:00:00',
+        },
+      ],
+    })
     const sessionCookie = await createSessionCookie({
       userType: 'admin',
       name: 'Admin User',
@@ -397,7 +410,7 @@ describe('reading log routes', () => {
           Cookie: sessionCookie,
         },
       },
-      { SESSION_SECRET: TEST_SESSION_SECRET }
+      { DB: db, SESSION_SECRET: TEST_SESSION_SECRET }
     )
     const body = await res.text()
 
@@ -405,6 +418,43 @@ describe('reading log routes', () => {
     expect(body).toContain('<summary')
     expect(body).toContain('>管理<')
     expect(body).toContain('href="/admin/users"')
+  })
+
+  it('GET / hides admin dropdown when session says admin but DB role is revoked', async () => {
+    const db = createMockDb({
+      initialUsers: [
+        {
+          id: 1,
+          google_sub: 'demoted-admin-sub',
+          email: 'admin@example.com',
+          name: 'Demoted Admin',
+          user_type: 'user',
+          picture_url: null,
+          created_at: '2026-04-14 09:00:00',
+        },
+      ],
+    })
+    const sessionCookie = await createSessionCookie({
+      id: 1,
+      email: 'admin@example.com',
+      name: 'Demoted Admin',
+      userType: 'admin',
+    })
+
+    const res = await app.request(
+      '/',
+      {
+        headers: {
+          Cookie: sessionCookie,
+        },
+      },
+      { DB: db, SESSION_SECRET: TEST_SESSION_SECRET }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(body).not.toContain('>管理<')
+    expect(body).not.toContain('href="/admin/users"')
   })
 
   it('GET /admin/users returns 403 for non-admin user', async () => {
@@ -459,7 +509,7 @@ describe('reading log routes', () => {
     const body = await res.text()
 
     expect(res.status).toBe(403)
-    expect(body).toContain('管理者権限が確認できませんでした。')
+    expect(body).toContain('管理者権限が必要です。')
   })
 
   it('GET /admin/users lists users with book counts for admin', async () => {
