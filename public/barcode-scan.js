@@ -121,7 +121,20 @@
       return;
     }
 
-    form.submit();
+    var submitButton = form.querySelector('button[type="submit"], input[type="submit"]');
+    if (submitButton && typeof submitButton.click === 'function') {
+      submitButton.click();
+      return;
+    }
+
+    if (typeof SubmitEvent === 'function') {
+      form.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+      return;
+    }
+
+    var legacySubmitEvent = document.createEvent('Event');
+    legacySubmitEvent.initEvent('submit', true, true);
+    form.dispatchEvent(legacySubmitEvent);
   }
 
   function showScanError(msg) {
