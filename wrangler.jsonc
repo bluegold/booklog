@@ -24,7 +24,7 @@
     "BOOK_COVERS_PUBLIC_BASE_URL": "https://pub-424ff2070b3d408b91daa7c0df91b4b6.r2.dev"
   },
   "observability": {
-    "enabled": false,
+    "enabled": true,
     "head_sampling_rate": 1,
     "logs": {
       "enabled": true,
@@ -33,7 +33,7 @@
       "invocation_logs": true
     },
     "traces": {
-      "enabled": false,
+      "enabled": true,
       "persist": true,
       "head_sampling_rate": 1
     }
