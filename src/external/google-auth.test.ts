@@ -4,6 +4,7 @@ import { buildGoogleAuthUrl, exchangeCodeForAccessToken, fetchGoogleUserInfo } f
 describe('google-auth', () => {
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
   })
 
   it('buildGoogleAuthUrl builds expected endpoint and query parameters', () => {

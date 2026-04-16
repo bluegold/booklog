@@ -78,7 +78,7 @@ describe('books-service', () => {
       author: '著者',
       publisher: '出版社',
       published_at: '2020-01',
-      cover_url: undefined,
+      cover_url: '',
     })
     const db = createMockDb({
       insertError: new Error('database unavailable'),
