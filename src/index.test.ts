@@ -45,6 +45,10 @@ const createSessionCookie = async (options: SessionUserOptions = {}): Promise<st
 
 const fetchCsrfContext = async (): Promise<CsrfContext> => {
   const sessionCookie = await createSessionCookie()
+  return fetchCsrfContextForSession(sessionCookie)
+}
+
+const fetchCsrfContextForSession = async (sessionCookie: string): Promise<CsrfContext> => {
   const res = await app.request(
     '/',
     {
@@ -379,6 +383,243 @@ describe('reading log routes', () => {
     expect(followBody).toContain('impersonate 中')
   })
 
+  it('POST /admin/impersonate returns 401 when SESSION_SECRET is missing', async () => {
+    const db = createMockDb({
+      initialUsers: [
+        {
+          id: 1,
+          google_sub: 'admin-sub',
+          email: 'admin@example.com',
+          name: 'Admin',
+          user_type: 'admin',
+          picture_url: null,
+          created_at: '2026-04-14 09:00:00',
+        },
+      ],
+    })
+    const adminSessionCookie = await createSessionCookie({
+      id: 1,
+      email: 'admin@example.com',
+      name: 'Admin',
+      userType: 'admin',
+    })
+    const csrf = await fetchCsrfContextForSession(adminSessionCookie)
+
+    const res = await app.request(
+      '/admin/impersonate',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Cookie: `${adminSessionCookie}; ${csrf.csrfCookie}`,
+        },
+        body: new URLSearchParams({ csrf_token: csrf.token, target_user_id: '2' }),
+      },
+      { DB: db }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(401)
+    expect(body).toContain('ログインが必要です。')
+  })
+
+  it('POST /admin/impersonate returns 400 for invalid target user id', async () => {
+    const db = createMockDb({
+      initialUsers: [
+        {
+          id: 1,
+          google_sub: 'admin-sub',
+          email: 'admin@example.com',
+          name: 'Admin',
+          user_type: 'admin',
+          picture_url: null,
+          created_at: '2026-04-14 09:00:00',
+        },
+      ],
+    })
+    const adminSessionCookie = await createSessionCookie({
+      id: 1,
+      email: 'admin@example.com',
+      name: 'Admin',
+      userType: 'admin',
+    })
+    const csrf = await fetchCsrfContextForSession(adminSessionCookie)
+
+    const res = await app.request(
+      '/admin/impersonate',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Cookie: `${adminSessionCookie}; ${csrf.csrfCookie}`,
+        },
+        body: new URLSearchParams({ csrf_token: csrf.token, target_user_id: 'not-a-number' }),
+      },
+      { DB: db, SESSION_SECRET: TEST_SESSION_SECRET }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(400)
+    expect(body).toContain('対象ユーザが不正です。')
+  })
+
+  it('POST /admin/impersonate returns 404 when target user does not exist', async () => {
+    const db = createMockDb({
+      initialUsers: [
+        {
+          id: 1,
+          google_sub: 'admin-sub',
+          email: 'admin@example.com',
+          name: 'Admin',
+          user_type: 'admin',
+          picture_url: null,
+          created_at: '2026-04-14 09:00:00',
+        },
+      ],
+    })
+    const adminSessionCookie = await createSessionCookie({
+      id: 1,
+      email: 'admin@example.com',
+      name: 'Admin',
+      userType: 'admin',
+    })
+    const csrf = await fetchCsrfContextForSession(adminSessionCookie)
+
+    const res = await app.request(
+      '/admin/impersonate',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Cookie: `${adminSessionCookie}; ${csrf.csrfCookie}`,
+        },
+        body: new URLSearchParams({ csrf_token: csrf.token, target_user_id: '999' }),
+      },
+      { DB: db, SESSION_SECRET: TEST_SESSION_SECRET }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(404)
+    expect(body).toContain('対象ユーザが見つかりません。')
+  })
+
+  it('POST /admin/impersonate/stop returns 401 when SESSION_SECRET is missing', async () => {
+    const db = createMockDb({
+      initialUsers: [
+        {
+          id: 1,
+          google_sub: 'admin-sub',
+          email: 'admin@example.com',
+          name: 'Admin',
+          user_type: 'admin',
+          picture_url: null,
+          created_at: '2026-04-14 09:00:00',
+        },
+      ],
+    })
+    const impersonatedSessionCookie = await createSessionCookie({
+      id: 2,
+      email: 'user@example.com',
+      name: 'Reader',
+      userType: 'user',
+      impersonator: {
+        id: 1,
+        email: 'admin@example.com',
+        name: 'Admin',
+      },
+    })
+    const csrf = await fetchCsrfContextForSession(impersonatedSessionCookie)
+
+    const res = await app.request(
+      '/admin/impersonate/stop',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Cookie: `${impersonatedSessionCookie}; ${csrf.csrfCookie}`,
+        },
+        body: new URLSearchParams({ csrf_token: csrf.token }),
+      },
+      { DB: db }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(401)
+    expect(body).toContain('ログインが必要です。')
+  })
+
+  it('POST /admin/impersonate/stop restores admin session from impersonated session', async () => {
+    const db = createMockDb({
+      initialUsers: [
+        {
+          id: 1,
+          google_sub: 'admin-sub',
+          email: 'admin@example.com',
+          name: 'Admin',
+          user_type: 'admin',
+          picture_url: null,
+          created_at: '2026-04-14 09:00:00',
+        },
+        {
+          id: 2,
+          google_sub: 'user-sub',
+          email: 'user@example.com',
+          name: 'Reader',
+          user_type: 'user',
+          picture_url: null,
+          created_at: '2026-04-13 09:00:00',
+        },
+      ],
+    })
+    const impersonatedSessionCookie = await createSessionCookie({
+      id: 2,
+      email: 'user@example.com',
+      name: 'Reader',
+      userType: 'user',
+      impersonator: {
+        id: 1,
+        email: 'admin@example.com',
+        name: 'Admin',
+      },
+    })
+    const csrf = await fetchCsrfContextForSession(impersonatedSessionCookie)
+
+    const res = await app.request(
+      '/admin/impersonate/stop',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Cookie: `${impersonatedSessionCookie}; ${csrf.csrfCookie}`,
+        },
+        body: new URLSearchParams({ csrf_token: csrf.token }),
+      },
+      { DB: db, SESSION_SECRET: TEST_SESSION_SECRET }
+    )
+
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('/')
+
+    const setCookie = res.headers.get('set-cookie')
+    expect(setCookie).toContain('session_token=')
+
+    const restoredSession = setCookie?.split(';')[0]
+    const follow = await app.request(
+      '/',
+      {
+        headers: {
+          Cookie: restoredSession ?? '',
+        },
+      },
+      { DB: db, SESSION_SECRET: TEST_SESSION_SECRET }
+    )
+    const followBody = await follow.text()
+
+    expect(follow.status).toBe(200)
+    expect(followBody).toContain('Admin')
+    expect(followBody).not.toContain('impersonate 中')
+  })
+
   it('GET /books rejects impersonation session when impersonator is demoted in DB', async () => {
     const db = createMockDb({
       initialUsers: [
@@ -534,6 +775,181 @@ describe('reading log routes', () => {
     expect(res.status).toBe(302)
     expect(hasSessionClear).toBe(true)
     expect(hasOauthState).toBe(true)
+  })
+
+  it('GET /auth/google/start returns 500 when OAuth config is missing', async () => {
+    const res = await app.request('/auth/google/start', undefined, { SESSION_SECRET: TEST_SESSION_SECRET })
+    const body = await res.text()
+
+    expect(res.status).toBe(500)
+    expect(body).toContain('Google OAuth の設定が不足しています。')
+  })
+
+  it('GET /auth/google/start logs config in debug mode', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    const res = await app.request('/auth/google/start', undefined, {
+      GOOGLE_CLIENT_ID: 'debug-client-id',
+      GOOGLE_REDIRECT_URI: 'https://example.com/auth/google/callback',
+      DEBUG: '1',
+    })
+
+    expect(res.status).toBe(302)
+    expect(logSpy).toHaveBeenCalledWith(
+      '[oauth] /auth/google/start config',
+      expect.objectContaining({ GOOGLE_REDIRECT_URI: 'https://example.com/auth/google/callback' })
+    )
+  })
+
+  it('GET /auth/google/callback returns 500 when callback OAuth config is missing', async () => {
+    const res = await app.request('/auth/google/callback?state=s&code=c', undefined, {
+      GOOGLE_CLIENT_ID: 'only-client-id',
+      GOOGLE_REDIRECT_URI: 'https://example.com/auth/google/callback',
+    })
+    const body = await res.text()
+
+    expect(res.status).toBe(500)
+    expect(body).toContain('Google OAuth の設定が不足しています。')
+  })
+
+  it('GET /auth/google/callback returns 400 when state validation fails', async () => {
+    const res = await app.request(
+      '/auth/google/callback?state=expected-state&code=auth-code',
+      {
+        headers: {
+          Cookie: 'oauth_state=another-state',
+        },
+      },
+      {
+        GOOGLE_CLIENT_ID: 'client-id',
+        GOOGLE_CLIENT_SECRET: 'client-secret',
+        GOOGLE_REDIRECT_URI: 'https://example.com/auth/google/callback',
+        SESSION_SECRET: TEST_SESSION_SECRET,
+      }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(400)
+    expect(body).toContain('Google 認証の state 検証に失敗しました。')
+    expect(res.headers.get('set-cookie')).toContain('oauth_state=')
+    expect(res.headers.get('set-cookie')).toContain('Max-Age=0')
+  })
+
+  it('GET /auth/google/callback returns 400 when token exchange fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }))
+
+    const res = await app.request(
+      '/auth/google/callback?state=ok-state&code=auth-code',
+      {
+        headers: {
+          Cookie: 'oauth_state=ok-state',
+        },
+      },
+      {
+        GOOGLE_CLIENT_ID: 'client-id',
+        GOOGLE_CLIENT_SECRET: 'client-secret',
+        GOOGLE_REDIRECT_URI: 'https://example.com/auth/google/callback',
+        SESSION_SECRET: TEST_SESSION_SECRET,
+      }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(400)
+    expect(body).toContain('Google からのトークン取得に失敗しました。')
+  })
+
+  it('GET /auth/google/callback returns 400 when userinfo fetch fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ access_token: 'token-123' }) })
+        .mockResolvedValueOnce({ ok: false })
+    )
+
+    const res = await app.request(
+      '/auth/google/callback?state=ok-state&code=auth-code',
+      {
+        headers: {
+          Cookie: 'oauth_state=ok-state',
+        },
+      },
+      {
+        GOOGLE_CLIENT_ID: 'client-id',
+        GOOGLE_CLIENT_SECRET: 'client-secret',
+        GOOGLE_REDIRECT_URI: 'https://example.com/auth/google/callback',
+        SESSION_SECRET: TEST_SESSION_SECRET,
+      }
+    )
+    const body = await res.text()
+
+    expect(res.status).toBe(400)
+    expect(body).toContain('Google ユーザー情報の取得に失敗しました。')
+  })
+
+  it('GET /auth/google/callback logs in user and redirects on success', async () => {
+    const db = createMockDb()
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ access_token: 'token-123' }) })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            sub: 'google-sub-success',
+            email: 'oauth-user@example.com',
+            name: 'OAuth User',
+            picture: 'https://example.com/avatar.png',
+          }),
+        })
+    )
+
+    const res = await app.request(
+      '/auth/google/callback?state=ok-state&code=auth-code',
+      {
+        headers: {
+          Cookie: 'oauth_state=ok-state',
+        },
+      },
+      {
+        DB: db,
+        GOOGLE_CLIENT_ID: 'client-id',
+        GOOGLE_CLIENT_SECRET: 'client-secret',
+        GOOGLE_REDIRECT_URI: 'https://example.com/auth/google/callback',
+        SESSION_SECRET: TEST_SESSION_SECRET,
+      }
+    )
+
+    const cookies = res.headers.getSetCookie()
+    const hasSessionCookie = cookies.some((cookie) => cookie.startsWith('session_token='))
+    const hasStateClearCookie = cookies.some((cookie) => cookie.startsWith('oauth_state=') && cookie.includes('Max-Age=0'))
+
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('/')
+    expect(hasSessionCookie).toBe(true)
+    expect(hasStateClearCookie).toBe(true)
+  })
+
+  it('GET /auth/google/callback logs config in debug mode', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    const res = await app.request('/auth/google/callback?state=s&code=c', undefined, {
+      GOOGLE_CLIENT_ID: 'client-id',
+      GOOGLE_CLIENT_SECRET: 'client-secret',
+      GOOGLE_REDIRECT_URI: 'https://example.com/auth/google/callback',
+      SESSION_SECRET: TEST_SESSION_SECRET,
+      DEBUG: '1',
+    })
+
+    expect(res.status).toBe(400)
+    expect(logSpy).toHaveBeenCalledWith(
+      '[oauth] /auth/google/callback config',
+      expect.objectContaining({
+        GOOGLE_CLIENT_SECRET: '(set)',
+        SESSION_SECRET: '(set)',
+      })
+    )
   })
 
   it('POST /auth/logout clears session cookie when CSRF token is valid', async () => {
