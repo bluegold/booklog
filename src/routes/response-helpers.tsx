@@ -68,6 +68,24 @@ export const renderBookListOobResponse = (options: BookListOobResponseOptions) =
   return (
     <>
       <ResultMessage message={options.message} tone={options.tone} />
+      <div id="result-toast" hx-swap-oob="innerHTML">
+        <div
+          class="toast-notification relative rounded-xl border border-stone-200 bg-white p-2 pr-8 shadow-lg"
+          style="pointer-events: auto;"
+          onclick="(function(el){if(el.dataset.closing==='1')return;el.dataset.closing='1';el.classList.add('toast-notification-exit')})(this)"
+          onanimationend="if(this.dataset.closing==='1'){this.remove()}"
+        >
+          <button
+            type="button"
+            aria-label="通知を閉じる"
+            class="absolute right-2 top-2 rounded-md px-1.5 py-0.5 text-sm font-semibold text-stone-500 hover:bg-stone-100 hover:text-stone-700"
+            onclick="event.stopPropagation();(function(btn){var el=btn.closest('.toast-notification');if(!el||el.dataset.closing==='1')return;el.dataset.closing='1';el.classList.add('toast-notification-exit')})(this)"
+          >
+            x
+          </button>
+          <ResultMessage message={options.message} tone={options.tone} />
+        </div>
+      </div>
       {options.extra}
       {renderBookListOob(options.listing, options.csrfToken, options.listOptions)}
     </>
