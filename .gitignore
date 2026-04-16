@@ -6,5 +6,6 @@ misc/access.log
 .dev.vars
 public/app.css
 coverage/
+.githooks/
 .vscode/
 .codex

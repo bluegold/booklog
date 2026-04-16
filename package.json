@@ -6,6 +6,7 @@
   "scripts": {
     "build:css": "tailwindcss -i ./src/styles/app.css -o ./public/app.css --minify",
     "dev": "concurrently -k -n css,worker -c cyan,green \"npm:watch:css\" \"wrangler dev\"",
+    "hooks:install": "git config core.hooksPath .githooks",
     "watch:css": "tailwindcss -i ./src/styles/app.css -o ./public/app.css --watch",
     "test": "vitest run",
     "test:watch": "vitest"
